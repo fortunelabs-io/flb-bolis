@@ -1,7 +1,7 @@
 # Apache-2.0 as the license for Bolis
 
 Date: 2026-10-01
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -29,7 +29,7 @@ Bolis carries Apache-2.0. The scope is the firmware component, the example proje
 - The ESP Component Registry upload and the PyPI upload proceed.
 - Bolis matches the license of ESP-IDF, so a source build mixes no conflicting terms.
 - A third party ships a closed derivative of Bolis without publishing its changes.
-- Apache-2.0 requires a notice file in a redistribution, which MIT does not.
+- Apache-2.0 requires a redistribution to carry the license text and to mark modified files, which MIT does not.
 - The copyright line needs the registered name of Fortunelabs HK, which this record does not state.
 - A per-file SPDX identifier header is a separate choice, which this record does not make.
 - Specification section 8.1 drops its `[proposal]` label in its next version.
