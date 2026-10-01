@@ -1,0 +1,39 @@
+# Claude Code: local instructions stay on this machine
+.claude/
+CLAUDE.local.md
+
+# Standard documents and MISRA rule texts: never commit them
+*MISRA*.pdf
+*misra*.pdf
+misra_c_*headlines*.txt
+
+# ESP-IDF build output
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+warnings.txt
+html_report/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets
+.env
+.env.*
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
