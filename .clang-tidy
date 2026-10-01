@@ -1,0 +1,18 @@
+# clang-tidy configuration for Bolis C code.
+#
+# The SEI CERT C Coding Standard, 2016 Edition, is part of the coding baseline
+# in docs/adr/2026-10-01-misra-c-2012-coding-baseline.md. clang-tidy checks the
+# CERT rules. The cppcheck MISRA addon and a manual review check the MISRA
+# guidelines.
+#
+# Run the check with:
+#   IDF_TOOLCHAIN=clang idf.py -C components/bolis/examples/bench clang-check
+#
+# Adopted code stays outside the check: ESP-IDF, FreeRTOS, newlib, the WiFi and
+# ESP-NOW drivers, and every file under managed_components or build.
+
+Checks: '-*,cert-*'
+
+HeaderFilterRegex: 'components/bolis/(include|priv_include)/.*'
+
+FormatStyle: none

@@ -1,0 +1,36 @@
+# Doxygen configuration for the Bolis C API.
+#
+# The component documents every public function, type, enumeration constant,
+# and macro with a Javadoc block. A warning fails this check, so the
+# documentation stays in step with the code.
+#
+# The coding baseline is in docs/adr/2026-10-01-misra-c-2012-coding-baseline.md.
+
+PROJECT_NAME           = "Bolis"
+PROJECT_BRIEF          = "Link sweep for ESP-NOW on ESP-IDF"
+
+OUTPUT_DIRECTORY       = html_report
+GENERATE_LATEX         = NO
+
+# The component authors C only.
+OPTIMIZE_OUTPUT_FOR_C  = YES
+
+# Every block states @brief, so Doxygen does not infer one from the first line.
+JAVADOC_AUTOBRIEF      = NO
+
+# A static function is internal to its module, so the API documentation omits it.
+EXTRACT_STATIC         = NO
+
+WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+
+INPUT                  = components/bolis/include \
+                         components/bolis/src
+RECURSIVE              = YES
+
+# Adopted code and build output stay outside the check.
+EXCLUDE_PATTERNS       = */managed_components/* \
+                         */build/*
+
+QUIET                  = YES
