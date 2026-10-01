@@ -1,7 +1,7 @@
 # MISRA C:2012 with Amendments 1 and 2 as the coding baseline for Bolis C code
 
 Date: 2026-10-01
-Status: Proposed
+Status: Accepted
 
 ## Context
 
