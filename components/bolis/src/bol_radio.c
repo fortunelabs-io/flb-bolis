@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Fortunelabs
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * @file bol_radio.c
  * @brief Radio owner of the Bolis firmware (thinkbook section 7, decision record

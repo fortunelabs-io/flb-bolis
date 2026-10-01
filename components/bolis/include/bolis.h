@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Fortunelabs
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * @file bolis.h
  * @brief Public API of the Bolis firmware component (thinkbook section 7).

@@ -1,3 +1,9 @@
+/*
+ * SPDX-FileCopyrightText: 2026 Fortunelabs
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 /**
  * @file main.c
  * @brief Entry point of the bench example. It calls only bol_start (decision record
