@@ -255,7 +255,7 @@ The founder sets `<h>` hours per week for issues and questions. Items beyond the
 
 ## 14. Decision records
 
-The records sit in the `adr/` folder. Sections 4 to 7 cite them by number.
+The records sit in the `docs/adr/` folder. Sections 4 to 7 cite them by number.
 
 | No. | Decision | Record |
 |---|---|---|

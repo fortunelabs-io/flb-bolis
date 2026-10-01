@@ -13,4 +13,4 @@ Status: pre-release. No firmware or host code exists yet.
 | `host/` | The Python package `bolis`: CLI, flasher, orchestrator, run record writer, and report builder |
 | `schema/` | The JSON Schema of the run record format |
 | `docs/` | The Doxygen configuration and the MISRA compliance files |
-| `adr/` | The decision records |
+| `docs/adr/` | The decision records |
