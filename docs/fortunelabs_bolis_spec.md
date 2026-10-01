@@ -137,7 +137,7 @@ Bolis has no sales force. Reach depends on where developers already look.
 
 ### 8.1 The rule
 
-The firmware, the component, and the base scripts are open, following the Hwaci pattern. A developer must install, run, and read the report without contacting Fortune Labs. A step that requires contact is a defect. `[proposal]` The license is Apache-2.0, which carries a patent grant. The founder confirms the license before the first release.
+The firmware, the component, and the base scripts are open, following the Hwaci pattern. A developer must install, run, and read the report without contacting Fortune Labs. A step that requires contact is a defect. The license is Apache-2.0, which carries a patent grant. The founder accepted it on 2026-10-01, and the repository carries the license text in `LICENSE` (`docs/adr/2026-10-01-apache-2-0-license.md`).
 
 ### 8.2 Channels, in order
 
