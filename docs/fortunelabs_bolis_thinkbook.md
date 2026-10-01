@@ -368,7 +368,7 @@ The report builder reads the run record and writes one static HTML file. The fil
 
 ## Part 3. Decision records
 
-The records sit in the `adr/` folder. Part 2 cites them by number.
+The records sit in the `docs/adr/` folder. Part 2 cites them by number.
 
 | No. | Decision | Record |
 |---|---|---|
