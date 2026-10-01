@@ -10,6 +10,7 @@ misra_c_*headlines*.txt
 # ESP-IDF build output
 build/
 managed_components/
+dependencies.lock
 sdkconfig
 sdkconfig.old
 warnings.txt

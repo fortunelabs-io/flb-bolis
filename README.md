@@ -2,7 +2,7 @@
 
 Bolis is a bench tool for ESP-NOW. It consists of firmware for two ESP32 nodes and a host CLI. The firmware sweeps the ESP-NOW link between the two nodes. The host CLI writes one report that shows which variable moves frame loss near the configuration of the user.
 
-Status: pre-release. No firmware or host code exists yet.
+Status: pre-release. The firmware component owns the radio and builds. The control protocol, the sweep, the host CLI, and the report do not exist yet.
 
 ## Layout
 
