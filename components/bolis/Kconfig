@@ -1,0 +1,13 @@
+menu "Bolis"
+
+    config BOL_COUNTRY_CODE
+        string "Country code of the radio"
+        default "01"
+        help
+            The country code that the component sets before it starts WiFi.
+            The code limits the channels that a run can sweep, so the run
+            record states it. The default "01" is the world safe mode of
+            ESP-IDF, which allows channels 1 to 11. Set a code that
+            esp_wifi_set_country_code accepts.
+
+endmenu

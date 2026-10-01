@@ -1,0 +1,9 @@
+# The version is a placeholder until the founder sets the first release version.
+version: "0.0.1"
+description: "Link sweep for ESP-NOW on ESP-IDF"
+license: "Apache-2.0"
+url: "https://github.com/fortunelabs-io/flb-bolis"
+repository: "https://github.com/fortunelabs-io/flb-bolis"
+
+dependencies:
+  idf: ">=5.5"

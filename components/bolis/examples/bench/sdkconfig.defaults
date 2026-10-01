@@ -1,0 +1,4 @@
+# The prebuilt image builds with the Bluetooth controller disabled, because an active
+# controller takes time slices from WiFi (decision record
+# 2026-10-01-radio-ownership-and-prebuilt-firmware.md).
+CONFIG_BT_ENABLED=n
