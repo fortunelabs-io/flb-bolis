@@ -1,7 +1,7 @@
 # The control line wire format between the host and a node
 
 Date: 2026-10-01
-Status: Proposed
+Status: Accepted
 
 ## Context
 
