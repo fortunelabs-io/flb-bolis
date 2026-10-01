@@ -16,8 +16,8 @@ Mark a line that relies on a record with a suppression comment that names the gu
 
 | ID | Guidelines | Status | Approved |
 |---|---|---|---|
-| D-001 | Rule 21.6 (Required) | Proposed | None |
-| D-002 | Findings that arise only in adopted code | Proposed | None |
+| D-001 | Rule 21.6 (Required) | Approved | 2026-10-01 |
+| D-002 | Findings that arise only in adopted code | Approved | 2026-10-01 |
 
 ---
 
