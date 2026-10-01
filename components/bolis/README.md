@@ -33,4 +33,4 @@ Planned modules (thinkbook section 7): the console module, the frame header enco
 
 ## License
 
-The license is an open item. Specification section 8.1 proposes Apache-2.0. The founder confirms the SPDX identifier before the first release. The manifest `idf_component.yml` carries no `license` field until then, and the registry requires the field before the first upload.
+Apache-2.0 (`docs/adr/2026-10-01-apache-2-0-license.md`). The repository root holds the license text in `LICENSE`.
