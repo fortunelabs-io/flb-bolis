@@ -1,7 +1,7 @@
 # Host execution of the reader tests
 
 Date: 2026-11-06
-Status: Proposed
+Status: Accepted
 
 ## Context
 
