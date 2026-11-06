@@ -7,6 +7,9 @@ CLAUDE.local.md
 *misra*.pdf
 misra_c_*headlines*.txt
 
+# Output of the tools/prep stages: logs, the host test binary, and the durations
+prep-out/
+
 # ESP-IDF build output
 build/
 managed_components/
