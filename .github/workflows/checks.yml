@@ -74,6 +74,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install astyle_py
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          # astyle_py is not part of the core requirements of ESP-IDF, so the image does not
+          # carry it. The version matches the one that docs/compliance/misra-gcs.md records,
+          # so the layout of a file does not depend on where the check runs.
+          python -m pip install --disable-pip-version-check "astyle_py==1.1.0"
+          astyle_py --version
+
       - name: Format every native file and report a change
         shell: bash
         run: |
@@ -177,23 +188,27 @@ jobs:
           # repository never carries, so a finding names its guideline by number and carries
           # no text (docs/compliance/misra-gcs.md).
           : > findings.txt
+          : > cppcheck.log
+          # One filter per run. A cppcheck before 2.19 keeps only the last --file-filter, so
+          # several filters leave a project with no match and end the run with an error. The
+          # grep below narrows the paths instead.
           for db in components/bolis/examples/bench/build \
                     components/bolis/test_apps/json/build; do
             cppcheck \
               --project="${db}/compile_commands.json" \
               --addon=misra \
-              --file-filter='*/components/bolis/src/*' \
-              --file-filter='*/components/bolis/test/*' \
-              --file-filter='*/components/bolis/test_apps/*/main/*' \
-              --file-filter='*/components/bolis/examples/bench/main/*' \
+              --file-filter='*/components/bolis/*' \
               --inline-suppr \
               --enable=style \
               --suppress='*:*/build/*' \
-              --suppress="*:${IDF_PATH}/*" 2>&1 | tee -a cppcheck.log
+              --suppress="*:${IDF_PATH}/*" 2>&1 | tee -a cppcheck.log || true
           done
+          # A generated file under a build directory is not a file that Bolis authors.
           grep -E 'misra-c2012|style:|warning:|error:' cppcheck.log \
-            | grep -E '^components/bolis/' | sort -u > findings.txt || true
+            | grep -E '^components/bolis/' \
+            | grep -vE '/build/' | sort -u > findings.txt || true
           printf 'findings to trace: %d\n' "$(wc -l < findings.txt)"
+          cat findings.txt
 
       - name: Fail on a finding that no adopted macro explains
         shell: bash
