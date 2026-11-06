@@ -1,0 +1,302 @@
+# Checks for every pull request.
+#
+# The command of each job matches a row of the table in CLAUDE.md and the procedure in
+# skills/c-compliance-check. A job fails on a finding in a native file only. Adopted code
+# stays outside every check (docs/adr/2026-10-01-misra-c-2012-coding-baseline.md).
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Every job reads the repository and writes nothing back.
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The paths that Bolis authors. The coding baseline applies to these and to no other path.
+  BOL_NATIVE_PATHS: >-
+    components/bolis/src
+    components/bolis/include
+    components/bolis/priv_include
+    components/bolis/test
+    components/bolis/test_apps
+    components/bolis/examples/bench/main
+
+jobs:
+  build:
+    name: Build on ESP-IDF ${{ matrix.idf }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Decision record 2026-10-01-esp-idf-v5-5-minimum.md sets v5.5 as the minimum, and
+        # the component builds on v5.5 and on each later minor release that Espressif
+        # supports. v5.5 is the newest minor release at this date, so the matrix holds one
+        # entry. Add the next minor release here when Espressif publishes it.
+        idf: [release-v5.5]
+    container: espressif/idf:${{ matrix.idf }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the bench example and the test app
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          idf.py -C components/bolis/examples/bench build 2>&1 | tee build-bench.log
+          idf.py -C components/bolis/test_apps/json build 2>&1 | tee build-test.log
+
+      - name: Treat a warning in a native file as an error
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The component carries no -Werror, because a newer compiler in the build of a
+          # user can add a warning. CI applies that rule to its own build instead.
+          if grep -nE 'components/bolis/.*(warning|error):' build-bench.log build-test.log; then
+            echo "A native file produced a compiler diagnostic."
+            exit 1
+          fi
+          echo "No compiler diagnostic in a native file."
+
+  format:
+    name: Layout
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Format every native file and report a change
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          read -ra paths <<< "${BOL_NATIVE_PATHS}"
+          # A build directory holds generated C, which is not a file that Bolis authors.
+          mapfile -t sources < <(find "${paths[@]}" \
+            -path '*/build/*' -prune -o \
+            \( -name '*.c' -o -name '*.h' \) -print)
+          printf 'checking %d files\n' "${#sources[@]}"
+          printf '  %s\n' "${sources[@]}"
+          astyle_py --rules="${IDF_PATH}/tools/ci/astyle-rules.yml" "${sources[@]}"
+          if ! git diff --exit-code; then
+            echo "astyle_py changed a native file. Commit the formatted file."
+            exit 1
+          fi
+
+  tests:
+    name: Reader tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the host library that the linux target needs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The linux component of ESP-IDF wraps the libbsd headers.
+          apt-get update
+          apt-get install --yes --no-install-recommends libbsd-dev
+
+      - name: Build the test app for the linux target
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          # The reader needs no radio, so the cases run on the host and need no node.
+          idf.py -C components/bolis/test_apps/json --preview set-target linux
+          idf.py -C components/bolis/test_apps/json build
+
+      - name: Run the test cases and read the result from the output
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The process does not end once the cases finish, because app_main returning
+          # leaves the scheduler running. The run therefore carries a time limit, and its
+          # exit code reports nothing. unity_run_all_tests also prints no summary line.
+          # This step reads the result from the output instead.
+          timeout 300 ./components/bolis/test_apps/json/build/bolis_json_test.elf \
+            > tests.log 2>&1 || true
+          cat tests.log
+
+          if grep -q ':FAIL' tests.log; then
+            echo "A test case failed."
+            exit 1
+          fi
+
+          # A crash partway through leaves a log of passes and no failure, so the count of
+          # passes must match the count of cases in the source.
+          expected="$(grep -c '^TEST_CASE(' components/bolis/test/test_bol_json.c)"
+          passed="$(grep -c ':PASS' tests.log || true)"
+          if [ "${passed}" -ne "${expected}" ]; then
+            printf '%s of %s cases ran. The run stopped early.\n' "${passed}" "${expected}"
+            exit 1
+          fi
+          printf '%s test cases passed.\n' "${passed}"
+
+  misra:
+    name: MISRA C:2012
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install cppcheck
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install --yes --no-install-recommends cppcheck
+          cppcheck --version
+
+      - name: Build to produce the compilation databases
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          idf.py -C components/bolis/examples/bench build
+          idf.py -C components/bolis/test_apps/json build
+
+      - name: Run the MISRA addon and trace every finding
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The addon runs without the MISRA headline file, which is licensed and which this
+          # repository never carries, so a finding names its guideline by number and carries
+          # no text (docs/compliance/misra-gcs.md).
+          : > findings.txt
+          for db in components/bolis/examples/bench/build \
+                    components/bolis/test_apps/json/build; do
+            cppcheck \
+              --project="${db}/compile_commands.json" \
+              --addon=misra \
+              --file-filter='*/components/bolis/src/*' \
+              --file-filter='*/components/bolis/test/*' \
+              --file-filter='*/components/bolis/test_apps/*/main/*' \
+              --file-filter='*/components/bolis/examples/bench/main/*' \
+              --inline-suppr \
+              --enable=style \
+              --suppress='*:*/build/*' \
+              --suppress="*:${IDF_PATH}/*" 2>&1 | tee -a cppcheck.log
+          done
+          grep -E 'misra-c2012|style:|warning:|error:' cppcheck.log \
+            | grep -E '^components/bolis/' | sort -u > findings.txt || true
+          printf 'findings to trace: %d\n' "$(wc -l < findings.txt)"
+
+      - name: Fail on a finding that no adopted macro explains
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Record D-002 covers a finding that arises only in adopted code, and it requires a
+          # reviewer to trace each finding to its origin. This step performs that trace: a
+          # finding on a line that expands no adopted macro is a native finding.
+          native=0
+          while IFS= read -r finding; do
+            [ -n "${finding}" ] || continue
+            file="${finding%%:*}"
+            rest="${finding#*:}"
+            line="${rest%%:*}"
+            source_line=""
+            if [ -f "${file}" ]; then
+              source_line="$(sed -n "${line}p" "${file}")"
+            fi
+            case "${source_line}" in
+              *ESP_LOG*|*WIFI_INIT_CONFIG_DEFAULT*)
+                echo "traced to an adopted macro, under D-002: ${finding}"
+                ;;
+              *)
+                echo "NATIVE FINDING: ${finding}"
+                echo "    ${source_line}"
+                native=$((native + 1))
+                ;;
+            esac
+          done < findings.txt
+          if [ "${native}" -gt 0 ]; then
+            printf '%d finding(s) in a native file that record D-002 does not cover.\n' "${native}"
+            exit 1
+          fi
+          echo "Every finding traces to the expansion of an adopted macro."
+
+  cert:
+    name: CERT C
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the clang toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          python "${IDF_PATH}/tools/idf_tools.py" install esp-clang
+
+      - name: Build with clang to produce the compilation databases
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          # idf.py clang-check writes a database that holds the application file alone, so
+          # the check builds the project with clang and calls clang-tidy over that database.
+          IDF_TOOLCHAIN=clang idf.py -C components/bolis/examples/bench -B build-bench-clang build
+          IDF_TOOLCHAIN=clang idf.py -C components/bolis/test_apps/json -B build-test-clang build
+
+      - name: Run the CERT checks over the native files
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          clang_tidy="$(dirname "$(command -v clang)")/clang-tidy"
+          "${clang_tidy}" --version
+          : > cert.log
+          "${clang_tidy}" --config-file=.clang-tidy -p build-bench-clang \
+            --header-filter='components/bolis/(include|priv_include)/.*' \
+            components/bolis/src/bol_console.c \
+            components/bolis/src/bol_json.c \
+            components/bolis/src/bol_radio.c \
+            components/bolis/examples/bench/main/main.c 2>&1 | tee -a cert.log
+          "${clang_tidy}" --config-file=.clang-tidy -p build-test-clang \
+            --header-filter='components/bolis/(include|priv_include)/.*' \
+            components/bolis/test/test_bol_json.c \
+            components/bolis/test_apps/json/main/test_app_main.c 2>&1 | tee -a cert.log
+          if grep -E "/components/bolis/(src|include|priv_include|test|test_apps|examples)/.*(warning|error):" cert.log; then
+            echo "A native file produced a CERT finding."
+            exit 1
+          fi
+          echo "No CERT finding in a native file."
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Doxygen
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install --yes --no-install-recommends doxygen
+          doxygen --version
+
+      - name: Build the C API documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The configuration sets WARN_AS_ERROR, so a warning fails this step.
+          doxygen docs/Doxyfile
