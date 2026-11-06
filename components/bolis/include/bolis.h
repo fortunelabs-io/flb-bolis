@@ -19,12 +19,12 @@ extern "C" {
 #endif
 
 /**
- * @brief Takes the radio and prepares the node for a run.
+ * @brief Takes the radio, starts the control task, and prepares the node for a run.
  *
  * Initializes WiFi in station mode, keeps the WiFi settings in RAM, sets the
- * country code, disables power save, starts WiFi, and initializes ESP-NOW.
- * The node then waits for the host, which assigns the sender role or the
- * receiver role over the control plane.
+ * country code, disables power save, starts WiFi, initializes ESP-NOW, and
+ * starts the control task on the console. The node then waits for the host,
+ * which assigns the sender role or the receiver role over the control plane.
  *
  * Bolis owns the radio during a run. If WiFi is already initialized, the
  * application of the user owns the radio, and this function changes nothing.

@@ -12,6 +12,12 @@ PROJECT_BRIEF          = "Link sweep for ESP-NOW on ESP-IDF"
 OUTPUT_DIRECTORY       = html_report
 GENERATE_LATEX         = NO
 
+# The default of HAVE_DOT differs between Doxygen releases, so this file states it.
+# Doxygen 1.9.8 runs the graph tool by default and Doxygen 1.14.0 does not, which made
+# the same configuration pass on one machine and fail on another. The API documentation
+# needs no graph, so the check needs no graph tool.
+HAVE_DOT               = NO
+
 # The component authors C only.
 OPTIMIZE_OUTPUT_FOR_C  = YES
 
@@ -26,6 +32,7 @@ WARN_NO_PARAMDOC       = YES
 WARN_AS_ERROR          = FAIL_ON_WARNINGS
 
 INPUT                  = components/bolis/include \
+                         components/bolis/priv_include \
                          components/bolis/src
 RECURSIVE              = YES
 
