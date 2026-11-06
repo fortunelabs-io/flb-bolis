@@ -2,15 +2,29 @@
 
 ## `prep`
 
-`prep` runs the preparation and run stages of Bolis on a developer machine. It runs the
-stage that you name and nothing else.
+`prep` runs the stages of Bolis on a developer machine. It runs the stage that you name
+and nothing else.
+
+`mise.toml` at the root of the repository pins the tool versions and declares one task
+per stage, so mise is the front door:
 
 ```
-./tools/prep preflight     Report whether every later stage can run. Change nothing.
-./tools/prep build         Build the bench example and the reader test app.
-./tools/prep test          Compile the reader cases with the host compiler, then run them.
-./tools/prep measure       Report the size of each image and the duration of each stage.
-./tools/prep all           Run the four stages in the order above.
+mise install               Install every tool that mise.toml pins. Run this once.
+mise tasks                 List the stages.
+mise run preflight         Report whether every later stage can run. Change nothing.
+mise run build             Build the bench example and the reader test app.
+mise run test              Compile the reader cases with the host compiler, then run them.
+mise run measure           Report the size of each image and the duration of each stage.
+mise run all               Run the four stages in the order above.
+mise run lint-shell        Check every shell script with ShellCheck.
+```
+
+Each task calls `tools/prep`, which also runs on its own with the same stage names:
+
+```
+./tools/prep preflight
+./tools/prep build test
+./tools/prep all --keep-going
 ```
 
 Run `./tools/prep --help` for the options.
@@ -43,14 +57,20 @@ record `docs/adr/2026-10-01-number-origin-labels.md`).
 
 ### Before the first run
 
-Source the `export.sh` of your ESP-IDF checkout, which places `idf.py` and the target
-compiler on `PATH` and sets `IDF_PATH` and `ESP_ROM_ELF_DIR`:
+Install the pinned tools, then source the `export.sh` of your ESP-IDF checkout, which
+places `idf.py` and the target compiler on `PATH` and sets `IDF_PATH` and
+`ESP_ROM_ELF_DIR`:
 
 ```
+mise install
 . "${HOME}/esp/esp-idf/export.sh"
 ```
 
-The `preflight` stage reports each requirement, so run it first. It installs nothing.
+ESP-IDF stays outside mise, because it is a git checkout with its own install and export
+scripts. `mise.toml` states why it pins no Python version.
+
+The `preflight` stage reports each requirement, including whether every tool that
+`mise.toml` pins is installed. Run it first. It installs nothing.
 
 ### The test stage
 

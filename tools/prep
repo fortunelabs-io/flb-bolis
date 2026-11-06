@@ -12,7 +12,11 @@
 set -euo pipefail
 
 readonly BOL_SELF="${0##*/}"
-readonly BOL_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The assignment stands apart from readonly, so a failure of cd or pwd reaches the
+# exit status rather than the status of readonly (ShellCheck SC2155).
+BOL_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly BOL_ROOT
 
 # Decision record 2026-10-01-esp-idf-v5-5-minimum.md sets the minimum ESP-IDF version.
 readonly BOL_IDF_MIN_MAJOR=5
@@ -223,6 +227,23 @@ stage_preflight() {
         fi
     else
         check_fail "python3" "absent from PATH"
+    fi
+
+    # The tools that mise.toml pins. A stage that needs one of them reports its own
+    # absence, and no stage needs every pinned tool, so an absent tool is a warning.
+    if [ ! -f "${BOL_ROOT}/mise.toml" ]; then
+        check_warn "mise tools" "mise.toml is absent, so no tool version is pinned"
+    elif command -v mise >/dev/null 2>&1; then
+        local absent_tools
+        absent_tools="$(cd -- "${BOL_ROOT}" && mise ls --missing 2>/dev/null \
+            | awk '{ printf "%s ", $1 }')"
+        if [ -z "${absent_tools% }" ]; then
+            check_ok "mise tools" "every tool that mise.toml pins is installed"
+        else
+            check_fail "mise tools" "absent: ${absent_tools%% }. Run: mise install"
+        fi
+    else
+        check_warn "mise tools" "mise is absent from PATH, so the pinned versions are unverified"
     fi
 
     # The unity sources, which the test stage compiles.
