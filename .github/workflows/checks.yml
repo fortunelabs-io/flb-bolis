@@ -190,24 +190,38 @@ jobs:
           : > findings.txt
           : > cppcheck.log
           # One filter per run. A cppcheck before 2.19 keeps only the last --file-filter, so
-          # several filters leave a project with no match and end the run with an error. The
-          # grep below narrows the paths instead.
+          # several filters leave a project with no match and end the run with an error.
+          #
+          # The pattern carries no slash before the first directory. A cppcheck before 2.19
+          # stores a relative path for a file of the project, and a leading */ never matches
+          # a path that starts with the directory itself.
           for db in components/bolis/examples/bench/build \
                     components/bolis/test_apps/json/build; do
             cppcheck \
               --project="${db}/compile_commands.json" \
               --addon=misra \
-              --file-filter='*/components/bolis/*' \
+              --file-filter='*components/bolis/*' \
               --inline-suppr \
               --enable=style \
               --suppress='*:*/build/*' \
-              --suppress="*:${IDF_PATH}/*" 2>&1 | tee -a cppcheck.log || true
+              --suppress="*:${IDF_PATH}/*" 2>&1 | tee -a cppcheck.log
           done
+
+          # An empty result and a result with no finding read the same way, so the job states
+          # how many files the checker opened. A filter that matches nothing leaves this at
+          # zero, and a job that checked nothing proves nothing.
+          checked="$(grep -cE 'Checking .*\.(c|h)' cppcheck.log || true)"
+          printf 'files that cppcheck opened: %s\n' "${checked}"
+          if [ "${checked}" -eq 0 ]; then
+            echo "cppcheck opened no file. The filter or the compilation database is wrong."
+            exit 1
+          fi
+
           # A generated file under a build directory is not a file that Bolis authors.
           grep -E 'misra-c2012|style:|warning:|error:' cppcheck.log \
-            | grep -E '^components/bolis/' \
+            | grep -E '(^|/)components/bolis/' \
             | grep -vE '/build/' | sort -u > findings.txt || true
-          printf 'findings to trace: %d\n' "$(wc -l < findings.txt)"
+          printf 'findings to trace: %s\n' "$(wc -l < findings.txt)"
           cat findings.txt
 
       - name: Fail on a finding that no adopted macro explains
@@ -277,17 +291,33 @@ jobs:
           clang_tidy="$(dirname "$(command -v clang)")/clang-tidy"
           "${clang_tidy}" --version
           : > cert.log
+
+          firmware=(components/bolis/src/bol_console.c
+                    components/bolis/src/bol_json.c
+                    components/bolis/src/bol_radio.c
+                    components/bolis/examples/bench/main/main.c)
+          tests=(components/bolis/test/test_bol_json.c
+                 components/bolis/test_apps/json/main/test_app_main.c)
+
           "${clang_tidy}" --config-file=.clang-tidy -p build-bench-clang \
             --header-filter='components/bolis/(include|priv_include)/.*' \
-            components/bolis/src/bol_console.c \
-            components/bolis/src/bol_json.c \
-            components/bolis/src/bol_radio.c \
-            components/bolis/examples/bench/main/main.c 2>&1 | tee -a cert.log
+            "${firmware[@]}" 2>&1 | tee -a cert.log
           "${clang_tidy}" --config-file=.clang-tidy -p build-test-clang \
             --header-filter='components/bolis/(include|priv_include)/.*' \
-            components/bolis/test/test_bol_json.c \
-            components/bolis/test_apps/json/main/test_app_main.c 2>&1 | tee -a cert.log
-          if grep -E "/components/bolis/(src|include|priv_include|test|test_apps|examples)/.*(warning|error):" cert.log; then
+            "${tests[@]}" 2>&1 | tee -a cert.log
+
+          # A file that the checker never opened reports no finding, which reads the same way
+          # as a clean file. The job counts the files it opened and compares that count with
+          # the files it named.
+          named=$(( ${#firmware[@]} + ${#tests[@]} ))
+          opened="$(grep -cE 'Processing file' cert.log || true)"
+          printf 'files named: %s, files that clang-tidy opened: %s\n' "${named}" "${opened}"
+          if [ "${opened}" -ne "${named}" ]; then
+            echo "clang-tidy did not open every file. The compilation database is wrong."
+            exit 1
+          fi
+
+          if grep -E "components/bolis/(src|include|priv_include|test|test_apps|examples)/.*(warning|error):" cert.log; then
             echo "A native file produced a CERT finding."
             exit 1
           fi
@@ -315,3 +345,14 @@ jobs:
           set -euo pipefail
           # The configuration sets WARN_AS_ERROR, so a warning fails this step.
           doxygen docs/Doxyfile
+
+          # An input path that matches nothing yields a run with no warning, which reads the
+          # same way as a documented API. The job therefore looks for a symbol of each
+          # public and private header in the output.
+          for symbol in bol_start bol_console_start bol_json_get_u32; do
+            if ! grep -rq "${symbol}" html_report; then
+              printf 'the output documents no %s, so Doxygen read no header.\n' "${symbol}"
+              exit 1
+            fi
+          done
+          echo "The output documents every entry point that the check names."
