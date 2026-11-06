@@ -1,0 +1,63 @@
+# Tool versions and stage tasks for Bolis.
+#
+# mise places the tools below on PATH at the version this file states, so a stage
+# runs against the same version on every machine. Run "mise install" once, then
+# "mise tasks" to list the stages.
+#
+# The tasks delegate to tools/prep, which prints the command of each stage, writes
+# a log under prep-out, and ends with one verdict. Read tools/README.md for the
+# stages and their verdicts.
+
+[tools]
+# ShellCheck checks tools/prep. The rule that every script stays free of ShellCheck
+# findings has no pinned version anywhere else in the repository, and apt carries a
+# different release on each distribution, so the version lives here.
+shellcheck = "0.11.0"
+
+# Ruff lints and formats the host package. The command table of the repository names
+# ruff, and no file pinned its version before this one.
+ruff = "0.17.3"
+
+# mise carries no cppcheck, doxygen, or astyle_py, so this file pins none of them.
+# cppcheck still differs between this machine and the CI runner, and that gap needs
+# a decision of its own.
+#
+# ESP-IDF stays outside mise. It is a git checkout with its own install and export
+# scripts. Source its export.sh before a stage that calls idf.py.
+#
+# This file pins no Python version on purpose. ESP-IDF carries its own environment,
+# and a second Python ahead of it on PATH would decide which interpreter idf.py
+# runs. A parent directory may still pin one, and a pin there reaches this
+# repository: a run on 2026-11-06 inherited Python 3.11.9 from a config above the
+# repository, and the build passed because the environment of ESP-IDF sat earlier on
+# PATH. The preflight stage reads the version that a stage actually gets and reports
+# it against the minimum, which holds whatever a config above this file states.
+
+[tasks.preflight]
+description = "Report whether every later stage can run. Change nothing."
+run = "./tools/prep preflight"
+
+[tasks.build]
+description = "Build the bench example and the reader test app with idf.py."
+run = "./tools/prep build"
+
+[tasks.test]
+description = "Compile the reader cases with the host compiler, then run them."
+run = "./tools/prep test"
+
+[tasks.measure]
+description = "Report the size of each image and the duration of each stage."
+run = "./tools/prep measure"
+
+[tasks.all]
+description = "Run the readiness, build, test, and measure stages in order."
+# The task calls one stage runner rather than four mise tasks, because mise may run
+# the tasks of a depends list at the same time. The stages need their order, and one
+# run prints one summary table.
+run = "./tools/prep all"
+
+[tasks.lint-shell]
+description = "Check every shell script of the repository with ShellCheck."
+# The stages of tools/prep run no checker. This task sits outside them, and "all"
+# does not call it.
+run = "shellcheck tools/prep"

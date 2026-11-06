@@ -1,0 +1,715 @@
+#!/usr/bin/env bash
+#
+# Bolis preparation and run stages.
+#
+# The script runs the stage that you name and nothing else. Each stage prints the
+# command it runs, writes a log, and ends with one verdict line. The summary at the
+# end names the verdict, the duration, and the log of every stage of the run.
+#
+# The stages cover readiness, the build, the test cases, and the measurements. They
+# run no layout, MISRA, CERT, or Doxygen check. Those checks belong to
+# skills/c-compliance-check and to the Checks workflow.
+set -euo pipefail
+
+readonly BOL_SELF="${0##*/}"
+
+# The assignment stands apart from readonly, so a failure of cd or pwd reaches the
+# exit status rather than the status of readonly (ShellCheck SC2155).
+BOL_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly BOL_ROOT
+
+# Decision record 2026-10-01-esp-idf-v5-5-minimum.md sets the minimum ESP-IDF version.
+readonly BOL_IDF_MIN_MAJOR=5
+readonly BOL_IDF_MIN_MINOR=5
+
+# The minimum Python version, which is the minimum of esptool 5.
+readonly BOL_PY_MIN_MAJOR=3
+readonly BOL_PY_MIN_MINOR=10
+
+readonly BOL_BENCH_DIR="components/bolis/examples/bench"
+readonly BOL_TEST_APP_DIR="components/bolis/test_apps/json"
+readonly BOL_TEST_SRC="components/bolis/test/test_bol_json.c"
+
+readonly BOL_STAGES=(preflight build test measure)
+
+# A stage reports its result through an exit code.
+readonly BOL_PASS=0
+readonly BOL_FAIL=1
+readonly BOL_SKIP=2
+
+BOL_OUT="${BOL_ROOT}/prep-out"
+BOL_KEEP_GOING=0
+BOL_STAGE=""
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+banner() {
+    local label="$1" pad=""
+    if [ "${#label}" -lt 72 ]; then
+        pad="$(printf '%*s' "$((72 - ${#label}))" '')"
+    fi
+    printf '\n'
+    printf '== %s %s\n' "${label}" "${pad// /=}"
+}
+
+# Prints the command that the stage runs, so the log states what produced a result.
+step() {
+    printf '  $ %s\n' "$*"
+}
+
+say() {
+    printf '  %s\n' "$*"
+}
+
+# Records a sentence that the summary shows next to the verdict of this stage.
+note() {
+    printf '%s\n' "$*" > "${BOL_OUT}/${BOL_STAGE}.note"
+}
+
+# Prints one readiness row. The first field is the verdict and the rest is the detail.
+row() {
+    printf '  [%-4s] %-28s %s\n' "$1" "$2" "${3-}"
+}
+
+die() {
+    printf '%s: %s\n' "${BOL_SELF}" "$*" >&2
+    exit 2
+}
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+
+# Sets IDF_PATH when the caller did not source export.sh. idf.py sets the variable
+# for its own process, which does not reach this script or the host compile.
+resolve_idf_path() {
+    if [ -n "${IDF_PATH-}" ] && [ -d "${IDF_PATH}" ]; then
+        return 0
+    fi
+
+    local candidate
+    candidate="$(command -v idf.py 2>/dev/null || true)"
+    if [ -n "${candidate}" ]; then
+        # idf.py lives in the tools directory of the ESP-IDF checkout.
+        candidate="$(cd -- "$(dirname -- "${candidate}")/.." && pwd)"
+        if [ -f "${candidate}/version.txt" ] || [ -d "${candidate}/components/unity" ]; then
+            export IDF_PATH="${candidate}"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+# Prints the ESP-IDF version that idf.py reports, such as 5.5.4.
+idf_version() {
+    idf.py --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | tr -d 'v'
+}
+
+# Compares a dotted version with a minimum. Returns 0 when the version is at least
+# the minimum.
+version_at_least() {
+    local have="$1" min_major="$2" min_minor="$3"
+    local major minor
+    major="${have%%.*}"
+    minor="${have#*.}"
+    minor="${minor%%.*}"
+
+    case "${major}${minor}" in
+        *[!0-9]*|'') return 1 ;;
+    esac
+
+    if [ "${major}" -gt "${min_major}" ]; then
+        return 0
+    fi
+    if [ "${major}" -eq "${min_major}" ] && [ "${minor}" -ge "${min_minor}" ]; then
+        return 0
+    fi
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Stage: preflight
+# ---------------------------------------------------------------------------
+
+# Reports whether every later stage can run. The stage reads the machine and
+# changes nothing. It installs no tool and it writes no file outside the output
+# directory.
+stage_preflight() {
+    local ready=0 warned=0 missing=0
+
+    check_ok() { row ok "$1" "${2-}"; ready=$((ready + 1)); }
+    check_warn() { row warn "$1" "${2-}"; warned=$((warned + 1)); }
+    check_fail() { row FAIL "$1" "${2-}"; missing=$((missing + 1)); }
+
+    say "The stage reads the machine. It installs nothing and it changes nothing."
+    printf '\n'
+
+    # The repository layout that the later stages expect.
+    local path
+    for path in "${BOL_BENCH_DIR}" "${BOL_TEST_APP_DIR}" "${BOL_TEST_SRC}"; do
+        if [ -e "${BOL_ROOT}/${path}" ]; then
+            check_ok "path ${path##*/}" "${path}"
+        else
+            check_fail "path ${path##*/}" "${path} is absent"
+        fi
+    done
+
+    # ESP-IDF, which the build stage needs.
+    if command -v idf.py >/dev/null 2>&1; then
+        local version
+        version="$(idf_version)"
+        if [ -z "${version}" ]; then
+            check_warn "ESP-IDF version" "idf.py reported no version"
+        elif version_at_least "${version}" "${BOL_IDF_MIN_MAJOR}" "${BOL_IDF_MIN_MINOR}"; then
+            check_ok "ESP-IDF version" "v${version}, at or above the minimum v${BOL_IDF_MIN_MAJOR}.${BOL_IDF_MIN_MINOR}"
+        else
+            check_fail "ESP-IDF version" \
+                "v${version} is below the minimum v${BOL_IDF_MIN_MAJOR}.${BOL_IDF_MIN_MINOR} of decision record 3"
+        fi
+    else
+        check_fail "idf.py" "absent from PATH. Source the export.sh of your ESP-IDF checkout."
+    fi
+
+    if resolve_idf_path; then
+        if [ -n "${BOL_IDF_EXPORTED-}" ]; then
+            check_ok "IDF_PATH" "${IDF_PATH}"
+        else
+            check_warn "IDF_PATH" "unset in the environment. The script derived ${IDF_PATH}."
+        fi
+    else
+        check_fail "IDF_PATH" "unset, and the script found no ESP-IDF checkout"
+    fi
+
+    # The cross compiler, which export.sh places on PATH.
+    if command -v xtensa-esp32-elf-gcc >/dev/null 2>&1; then
+        check_ok "target compiler" "xtensa-esp32-elf-gcc"
+    else
+        check_fail "target compiler" "xtensa-esp32-elf-gcc is absent. Source export.sh."
+    fi
+
+    # export.sh sets ESP_ROM_ELF_DIR. Without it, the build still produces an image,
+    # and CMake prints a traceback while it generates the gdbinit file. The build
+    # stage therefore succeeds with noise in its log, which is worth stating here.
+    if [ -n "${ESP_ROM_ELF_DIR-}" ]; then
+        check_ok "ESP_ROM_ELF_DIR" "${ESP_ROM_ELF_DIR}"
+    else
+        check_warn "ESP_ROM_ELF_DIR" "unset. The build prints a gdbinit traceback and still produces an image."
+    fi
+
+    local tool
+    for tool in cmake ninja; do
+        if command -v "${tool}" >/dev/null 2>&1; then
+            check_ok "${tool}" "$("${tool}" --version 2>/dev/null | head -1)"
+        else
+            check_fail "${tool}" "absent from PATH"
+        fi
+    done
+
+    # The host compiler, which the test stage needs.
+    if command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1; then
+        local host_cc
+        host_cc="$(command -v gcc 2>/dev/null || command -v cc)"
+        check_ok "host compiler" "$("${host_cc}" --version 2>/dev/null | head -1)"
+    else
+        check_fail "host compiler" "neither gcc nor cc is on PATH. The test stage cannot build."
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        local py
+        py="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+        if [ -n "${py}" ] && version_at_least "${py}" "${BOL_PY_MIN_MAJOR}" "${BOL_PY_MIN_MINOR}"; then
+            check_ok "Python version" "${py}, at or above the minimum ${BOL_PY_MIN_MAJOR}.${BOL_PY_MIN_MINOR}"
+        else
+            check_fail "Python version" "${py:-unknown} is below the minimum ${BOL_PY_MIN_MAJOR}.${BOL_PY_MIN_MINOR}"
+        fi
+    else
+        check_fail "python3" "absent from PATH"
+    fi
+
+    # The tools that mise.toml pins. A stage that needs one of them reports its own
+    # absence, and no stage needs every pinned tool, so an absent tool is a warning.
+    if [ ! -f "${BOL_ROOT}/mise.toml" ]; then
+        check_warn "mise tools" "mise.toml is absent, so no tool version is pinned"
+    elif command -v mise >/dev/null 2>&1; then
+        local absent_tools
+        absent_tools="$(cd -- "${BOL_ROOT}" && mise ls --missing 2>/dev/null \
+            | awk '{ printf "%s ", $1 }')"
+        if [ -z "${absent_tools% }" ]; then
+            check_ok "mise tools" "every tool that mise.toml pins is installed"
+        else
+            check_fail "mise tools" "absent: ${absent_tools%% }. Run: mise install"
+        fi
+    else
+        check_warn "mise tools" "mise is absent from PATH, so the pinned versions are unverified"
+    fi
+
+    # The unity sources, which the test stage compiles.
+    if [ -n "${IDF_PATH-}" ] && [ -f "${IDF_PATH}/components/unity/unity/src/unity.c" ]; then
+        check_ok "unity sources" "${IDF_PATH}/components/unity"
+    else
+        check_fail "unity sources" "absent. The test stage compiles unity.c of ESP-IDF."
+    fi
+
+    # The generated sdkconfig.h, which unity_config.h of ESP-IDF includes. The build
+    # stage produces it, so an absent file is a warning and not a fault.
+    if [ -f "${BOL_ROOT}/${BOL_TEST_APP_DIR}/build/config/sdkconfig.h" ]; then
+        check_ok "generated sdkconfig.h" "${BOL_TEST_APP_DIR}/build/config"
+    else
+        check_warn "generated sdkconfig.h" "absent. Run the build stage before the test stage."
+    fi
+
+    # Space for the build directories.
+    local avail_mb
+    avail_mb="$(df -Pk "${BOL_ROOT}" 2>/dev/null | awk 'NR==2 {printf "%d", $4 / 1024}' || true)"
+    if [ -z "${avail_mb}" ]; then
+        check_warn "free disk space" "<unavailable>, because df reported nothing"
+    elif [ "${avail_mb}" -ge 2048 ]; then
+        check_ok "free disk space" "${avail_mb} MiB"
+    else
+        check_warn "free disk space" "${avail_mb} MiB. A full ESP-IDF build directory reaches about 1 GiB."
+    fi
+
+    printf '\n'
+    say "ready ${ready}, warnings ${warned}, missing ${missing}"
+
+    if [ "${missing}" -gt 0 ]; then
+        note "${missing} requirement(s) missing, ${warned} warning(s)"
+        return "${BOL_FAIL}"
+    fi
+
+    note "${ready} ready, ${warned} warning(s)"
+    return "${BOL_PASS}"
+}
+
+# ---------------------------------------------------------------------------
+# Stage: build
+# ---------------------------------------------------------------------------
+
+# Builds the bench example and the reader test app. The stage reports a compiler
+# diagnostic in a file that Bolis authors, which matches the rule that the Checks
+# workflow applies to its own build.
+stage_build() {
+    if ! command -v idf.py >/dev/null 2>&1; then
+        note "idf.py is absent from PATH"
+        say "idf.py is absent from PATH. Source the export.sh of your ESP-IDF checkout."
+        return "${BOL_SKIP}"
+    fi
+    if ! command -v xtensa-esp32-elf-gcc >/dev/null 2>&1; then
+        note "the target compiler is absent"
+        say "xtensa-esp32-elf-gcc is absent. Source export.sh, then run this stage again."
+        return "${BOL_SKIP}"
+    fi
+
+    # The stage reads the compiler output back to look for a diagnostic, so it keeps
+    # its own copy. The stage log passes through tee, which may not have flushed yet.
+    local compiler_log="${BOL_OUT}/build-compiler.log"
+    : > "${compiler_log}"
+
+    local project
+    for project in "${BOL_BENCH_DIR}" "${BOL_TEST_APP_DIR}"; do
+        say "project ${project}"
+        step "idf.py -C ${project} build"
+        if ! idf.py -C "${BOL_ROOT}/${project}" build 2>&1 | tee -a "${compiler_log}"; then
+            note "idf.py failed on ${project}"
+            return "${BOL_FAIL}"
+        fi
+        printf '\n'
+    done
+
+    # The component carries no -Werror, because a newer compiler in the build of a
+    # user can add a warning. This stage applies that rule to its own build.
+    local diagnostics
+    diagnostics="$(grep -cE 'components/bolis/.*(warning|error):' "${compiler_log}" 2>/dev/null || true)"
+    if [ -n "${diagnostics}" ] && [ "${diagnostics}" -gt 0 ]; then
+        say "the build produced ${diagnostics} diagnostic line(s) in a file that Bolis authors:"
+        grep -nE 'components/bolis/.*(warning|error):' "${compiler_log}" | sed 's/^/    /' || true
+        note "${diagnostics} compiler diagnostic(s) in a native file"
+        return "${BOL_FAIL}"
+    fi
+
+    say "no compiler diagnostic in a file that Bolis authors"
+    note "both projects built"
+    return "${BOL_PASS}"
+}
+
+# ---------------------------------------------------------------------------
+# Stage: test
+# ---------------------------------------------------------------------------
+
+# Compiles the reader cases with the host compiler and runs them. Decision record
+# 2026-11-06-host-execution-of-the-reader-tests.md states why the stage uses the
+# host compiler and not the ESP-IDF linux target.
+stage_test() {
+    if ! resolve_idf_path; then
+        note "no ESP-IDF checkout found"
+        say "The stage compiles unity.c of ESP-IDF, and it found no checkout."
+        return "${BOL_SKIP}"
+    fi
+
+    local config_dir="${BOL_ROOT}/${BOL_TEST_APP_DIR}/build/config"
+    if [ ! -f "${config_dir}/sdkconfig.h" ]; then
+        note "the generated sdkconfig.h is absent"
+        say "unity_config.h of ESP-IDF includes sdkconfig.h, which the build stage generates."
+        say "Run: ${BOL_SELF} build"
+        return "${BOL_SKIP}"
+    fi
+
+    local host_cc
+    host_cc="$(command -v gcc 2>/dev/null || command -v cc 2>/dev/null || true)"
+    if [ -z "${host_cc}" ]; then
+        note "no host compiler on PATH"
+        say "Neither gcc nor cc is on PATH."
+        return "${BOL_SKIP}"
+    fi
+
+    local binary="${BOL_OUT}/reader-tests"
+    local sources=(
+        "${BOL_ROOT}/components/bolis/test/host_runner.c"
+        "${BOL_ROOT}/${BOL_TEST_SRC}"
+        "${BOL_ROOT}/components/bolis/src/bol_json.c"
+        "${IDF_PATH}/components/unity/unity/src/unity.c"
+    )
+    # unity_runner.c of ESP-IDF stays out of the link. It pulls in esp_system.h, and
+    # host_runner.c supplies the registration that it would otherwise provide.
+    local includes=(
+        -I "${BOL_ROOT}/components/bolis/include"
+        -I "${BOL_ROOT}/components/bolis/priv_include"
+        -I "${IDF_PATH}/components/unity/include"
+        -I "${IDF_PATH}/components/unity/unity/src"
+        -I "${IDF_PATH}/components/esp_common/include"
+        -I "${IDF_PATH}/components/log/include"
+        -I "${config_dir}"
+    )
+
+    # Decision record 2026-10-01-misra-c-2012-coding-baseline.md fixes the language at C17.
+    #
+    # The compile carries no -Wall, because unity.c of ESP-IDF is adopted code and its
+    # warnings would fill this log. The build stage covers the diagnostics of the files
+    # that Bolis authors, with the compiler that a node runs.
+    step "${host_cc##*/} -std=gnu17 -DUNITY_INCLUDE_CONFIG_H -o prep-out/reader-tests <4 sources>"
+    if ! "${host_cc}" -std=gnu17 -DUNITY_INCLUDE_CONFIG_H \
+        "${includes[@]}" -o "${binary}" "${sources[@]}" -lm; then
+        note "the host compile failed"
+        return "${BOL_FAIL}"
+    fi
+    say "the host compile produced prep-out/reader-tests"
+    printf '\n'
+
+    step "prep-out/reader-tests"
+    local result_log="${BOL_OUT}/reader-tests.log"
+    local rc=0
+    # The runner exits with the count of failed cases, so a non-zero code is a result
+    # and not an error of this script.
+    if "${binary}" > "${result_log}" 2>&1; then
+        rc=0
+    else
+        rc=$?
+    fi
+    sed 's/^/    /' "${result_log}"
+    printf '\n'
+
+    if grep -q ':FAIL' "${result_log}"; then
+        local failed
+        failed="$(grep -c ':FAIL' "${result_log}" || true)"
+        note "${failed} case(s) failed"
+        return "${BOL_FAIL}"
+    fi
+
+    # A run that stops partway through leaves a log of passes and no failure, so the
+    # count of passes must match the count of cases in the source.
+    local expected passed
+    expected="$(grep -c '^TEST_CASE(' "${BOL_ROOT}/${BOL_TEST_SRC}" || true)"
+    passed="$(grep -c ':PASS' "${result_log}" || true)"
+    if [ "${passed}" -ne "${expected}" ]; then
+        say "${passed} of ${expected} cases ran. The run stopped early."
+        note "${passed} of ${expected} cases ran"
+        return "${BOL_FAIL}"
+    fi
+
+    if [ "${rc}" -ne 0 ]; then
+        note "the runner exited with code ${rc}"
+        say "Every case passed and the runner still exited with code ${rc}."
+        return "${BOL_FAIL}"
+    fi
+
+    say "${passed} of ${expected} cases passed [measured]"
+    note "${passed} of ${expected} cases passed"
+    return "${BOL_PASS}"
+}
+
+# ---------------------------------------------------------------------------
+# Stage: measure
+# ---------------------------------------------------------------------------
+
+# Reports the size of each image and the duration of each stage of this run.
+#
+# The stage measures no frame loss. The firmware carries no sweep yet, and no node
+# is attached, so a loss figure would be invented. Every number here carries its
+# origin label (decision record 2026-10-01-number-origin-labels.md).
+stage_measure() {
+    local build_dir="${BOL_ROOT}/${BOL_BENCH_DIR}/build"
+    if [ ! -d "${build_dir}" ]; then
+        note "no build directory"
+        say "The stage reads the output of a build, and ${BOL_BENCH_DIR}/build is absent."
+        say "Run: ${BOL_SELF} build"
+        return "${BOL_SKIP}"
+    fi
+
+    say "Image size, in bytes on disk."
+    printf '\n'
+    local found=0 artifact
+    for artifact in \
+        "${BOL_BENCH_DIR}/build/bootloader/bootloader.bin" \
+        "${BOL_BENCH_DIR}/build/partition_table/partition-table.bin" \
+        "${BOL_BENCH_DIR}/build/bolis_bench.bin" \
+        "${BOL_BENCH_DIR}/build/bolis_bench.elf" \
+        "${BOL_TEST_APP_DIR}/build/bolis_json_test.elf"; do
+        if [ -f "${BOL_ROOT}/${artifact}" ]; then
+            printf '    %-56s %12s bytes [measured]\n' \
+                "${artifact##*/}" "$(stat -c %s "${BOL_ROOT}/${artifact}")"
+            found=$((found + 1))
+        else
+            printf '    %-56s %12s        [absent]\n' "${artifact##*/}" "<unavailable>"
+        fi
+    done
+
+    if [ "${found}" -eq 0 ]; then
+        note "no image to measure"
+        say "The build directory holds no image."
+        return "${BOL_SKIP}"
+    fi
+
+    # idf.py size reports the flash and RAM use. Its layout changes between ESP-IDF
+    # releases, so the stage prints the lines it recognizes and points at the log for
+    # the rest. It never derives a number from a layout it did not match.
+    printf '\n'
+    say "Flash and RAM use, as idf.py size reports it."
+    printf '\n'
+    step "idf.py -C ${BOL_BENCH_DIR} size"
+    local size_log="${BOL_OUT}/size.log"
+    if command -v idf.py >/dev/null 2>&1 \
+        && idf.py -C "${BOL_ROOT}/${BOL_BENCH_DIR}" size > "${size_log}" 2>&1; then
+        # The pattern is an allowlist of the lines that the size report owns: the two
+        # binary size lines, the memory table, and the total. A match on a substring of
+        # a component name, such as free inside freertos, would otherwise pull a line
+        # of build noise into a report of measurements.
+        if grep -E 'binary size|^Total image size|Memory Type Usage Summary|^[┏┃┡│└┗]' \
+            "${size_log}" | sed 's/^/    /'; then
+            printf '\n'
+            say "Each line above is [measured]. The full output is in prep-out/size.log."
+        else
+            say "idf.py size matched no line that this stage recognizes: <unavailable>."
+            say "Read prep-out/size.log for the raw output."
+        fi
+    else
+        say "idf.py size did not run, so the flash and RAM use is <unavailable>."
+        say "Read prep-out/size.log for the reason."
+    fi
+
+    # The durations of the stages of this run.
+    printf '\n'
+    say "Stage duration of this run, in seconds."
+    printf '\n'
+    if [ -s "${BOL_OUT}/durations.tsv" ]; then
+        while IFS=$'\t' read -r stage seconds; do
+            printf '    %-56s %12s s     [measured]\n' "${stage}" "${seconds}"
+        done < "${BOL_OUT}/durations.tsv"
+    else
+        say "This run recorded no earlier stage, so the duration is <unavailable>."
+    fi
+
+    printf '\n'
+    say "The stage reports no frame loss. The firmware carries no sweep, and no node"
+    say "is attached, so this run measures the build and nothing about the link."
+    note "${found} image(s) measured"
+    return "${BOL_PASS}"
+}
+
+# ---------------------------------------------------------------------------
+# Driver
+# ---------------------------------------------------------------------------
+
+BOL_RESULTS=()
+
+run_stage() {
+    local name="$1"
+    local log="${BOL_OUT}/${name}.log"
+    local started ended elapsed rc=0
+
+    BOL_STAGE="${name}"
+    : > "${BOL_OUT}/${name}.note"
+    banner "${name}"
+
+    started="$(date +%s%3N)"
+    # The stage runs inside a condition, which suppresses errexit for it. A stage
+    # reports its result through an exit code, and that code must reach the summary
+    # rather than end the run.
+    if "stage_${name}" 2>&1 | tee "${log}"; then
+        rc=0
+    else
+        rc="${PIPESTATUS[0]}"
+    fi
+    ended="$(date +%s%3N)"
+    elapsed="$(awk -v a="${started}" -v b="${ended}" 'BEGIN { printf "%.1f", (b - a) / 1000 }')"
+
+    local verdict
+    case "${rc}" in
+        "${BOL_PASS}") verdict=PASS ;;
+        "${BOL_SKIP}") verdict=SKIP ;;
+        *) verdict=FAIL ;;
+    esac
+
+    local detail
+    detail="$(cat "${BOL_OUT}/${name}.note" 2>/dev/null || true)"
+    printf '\n  %s: %s (%s s) %s\n' "${name}" "${verdict}" "${elapsed}" "${detail:+- ${detail}}"
+
+    printf '%s\t%s\n' "${name}" "${elapsed}" >> "${BOL_OUT}/durations.tsv"
+    BOL_RESULTS+=("${name}|${verdict}|${elapsed}|${detail}")
+
+    return "${rc}"
+}
+
+summary() {
+    local line name verdict elapsed detail failures=0 pad
+    pad="$(printf '%*s' 62 '')"
+    printf '\n'
+    printf '== summary %s\n' "${pad// /=}"
+    printf '  %-10s %-7s %8s  %s\n' stage verdict seconds detail
+    for line in "${BOL_RESULTS[@]}"; do
+        IFS='|' read -r name verdict elapsed detail <<< "${line}"
+        printf '  %-10s %-7s %8s  %s\n' "${name}" "${verdict}" "${elapsed}" "${detail}"
+        if [ "${verdict}" = FAIL ]; then
+            failures=$((failures + 1))
+        fi
+    done
+    printf '\n'
+    printf '  Logs: %s\n' "${BOL_OUT}"
+    if [ "${failures}" -gt 0 ]; then
+        printf '  %d stage(s) failed.\n' "${failures}"
+        return 1
+    fi
+    printf '  No stage failed. A SKIP states its reason above.\n'
+    return 0
+}
+
+usage() {
+    cat <<USAGE
+${BOL_SELF} runs the stage that you name, and nothing else.
+
+Usage:
+  ${BOL_SELF} <stage>...
+  ${BOL_SELF} all
+
+Stages, in the order that "all" runs them:
+  preflight   Report whether every later stage can run. Change nothing.
+  build       Build the bench example and the reader test app with idf.py.
+  test        Compile the reader cases with the host compiler, then run them.
+  measure     Report the size of each image and the duration of each stage.
+
+Options:
+  --keep-going   Run every named stage even after one fails.
+  --out <dir>    Write the logs to <dir>. The default is prep-out.
+  -h, --help     Print this text.
+
+Verdicts:
+  PASS   The stage ran and met its condition.
+  FAIL   The stage ran and did not meet its condition. The exit code is 1.
+  SKIP   The stage could not run. The reason is on the verdict line.
+
+The stages run no layout, MISRA, CERT, or Doxygen check. Use
+skills/c-compliance-check for a C change, and read the Checks workflow for the
+checks that every pull request carries.
+
+Examples:
+  ${BOL_SELF} preflight          Check the machine before anything else.
+  ${BOL_SELF} build test         Build, then run the cases.
+  ${BOL_SELF} all --keep-going   Run every stage and collect every failure.
+USAGE
+}
+
+main() {
+    local requested=()
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -h|--help)
+                usage
+                return 0
+                ;;
+            --keep-going)
+                BOL_KEEP_GOING=1
+                ;;
+            --out)
+                [ "$#" -ge 2 ] || die "--out needs a directory"
+                BOL_OUT="$2"
+                shift
+                ;;
+            all)
+                requested+=("${BOL_STAGES[@]}")
+                ;;
+            -*)
+                die "unknown option $1. Run ${BOL_SELF} --help."
+                ;;
+            *)
+                local known=0 stage
+                for stage in "${BOL_STAGES[@]}"; do
+                    if [ "$1" = "${stage}" ]; then
+                        known=1
+                    fi
+                done
+                [ "${known}" -eq 1 ] || die "unknown stage $1. Run ${BOL_SELF} --help."
+                requested+=("$1")
+                ;;
+        esac
+        shift
+    done
+
+    # No stage named means no stage run. The script states the choices and stops.
+    if [ "${#requested[@]}" -eq 0 ]; then
+        usage
+        return 0
+    fi
+
+    mkdir -p "${BOL_OUT}"
+    BOL_OUT="$(cd -- "${BOL_OUT}" && pwd)"
+    : > "${BOL_OUT}/durations.tsv"
+
+    # A stage that reads IDF_PATH records whether the caller exported it, which the
+    # preflight stage reports as a warning rather than a fault.
+    if [ -n "${IDF_PATH-}" ]; then
+        BOL_IDF_EXPORTED=1
+        export BOL_IDF_EXPORTED
+    fi
+
+    printf 'Bolis stages: %s\n' "${requested[*]}"
+    printf 'Repository:   %s\n' "${BOL_ROOT}"
+    printf 'Logs:         %s\n' "${BOL_OUT}"
+
+    local name rc=0 failed=0
+    for name in "${requested[@]}"; do
+        if run_stage "${name}"; then
+            rc=0
+        else
+            rc=$?
+        fi
+        if [ "${rc}" -eq "${BOL_FAIL}" ]; then
+            failed=1
+            if [ "${BOL_KEEP_GOING}" -eq 0 ]; then
+                say ""
+                say "The stage failed, so the run stops here. Use --keep-going to continue."
+                break
+            fi
+        fi
+    done
+
+    if ! summary; then
+        failed=1
+    fi
+
+    return "${failed}"
+}
+
+main "$@"
