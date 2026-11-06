@@ -10,4 +10,13 @@ menu "Bolis"
             ESP-IDF, which allows channels 1 to 11. Set a code that
             esp_wifi_set_country_code accepts.
 
+    config BOL_PREBUILT
+        bool "Mark the image as a prebuilt image"
+        default n
+        help
+            CI sets this option when it builds a release image. The hello reply
+            states the firmware path, so a reader of a run record knows whether
+            the node ran a release image or a source build. Leave the option off
+            for a source build.
+
 endmenu

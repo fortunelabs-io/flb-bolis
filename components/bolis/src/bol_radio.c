@@ -21,7 +21,7 @@
 
 #include "bolis.h"
 
-static const char *const s_tag = "bolis";
+#include "bol_console.h"
 
 /**
  * @brief Initializes the non-volatile storage that the WiFi driver reads.
@@ -62,10 +62,11 @@ static esp_err_t bol_event_loop_init(void)
 }
 
 /**
- * @brief Brings the radio up and initializes ESP-NOW.
+ * @brief Brings the radio up, initializes ESP-NOW, and starts the control task.
  *
  * Each step runs only after the previous step returned ESP_OK, so the first
- * failing code reaches the caller.
+ * failing code reaches the caller. The control task starts last, because its
+ * hello reply states the ESP-NOW version.
  */
 static esp_err_t bol_radio_up(void)
 {
@@ -107,12 +108,16 @@ static esp_err_t bol_radio_up(void)
     if (ret == ESP_OK) {
         ret = esp_now_init();
     }
+    if (ret == ESP_OK) {
+        ret = bol_console_start();
+    }
 
     return ret;
 }
 
 esp_err_t bol_start(void)
 {
+    static const char *const radio_tag = "bolis";
     esp_err_t ret = ESP_OK;
     // The call needs the address of an object. The mode itself does not change the result.
     wifi_mode_t mode = WIFI_MODE_NULL;
@@ -120,14 +125,14 @@ esp_err_t bol_start(void)
     ret = esp_wifi_get_mode(&mode);
 
     if (ret != ESP_ERR_WIFI_NOT_INIT) {
-        ESP_LOGE(s_tag, "WiFi is already initialized. Bolis leaves the radio unchanged.");
+        ESP_LOGE(radio_tag, "WiFi is already initialized. Bolis leaves the radio unchanged.");
         ret = ESP_ERR_INVALID_STATE;
     } else {
         ret = bol_radio_up();
         if (ret == ESP_OK) {
-            ESP_LOGI(s_tag, "The radio is ready. The country code is %s.", CONFIG_BOL_COUNTRY_CODE);
+            ESP_LOGI(radio_tag, "The radio is ready. The country code is %s.", CONFIG_BOL_COUNTRY_CODE);
         } else {
-            ESP_LOGE(s_tag, "The radio did not start: %s", esp_err_to_name(ret));
+            ESP_LOGE(radio_tag, "The radio did not start: %s", esp_err_to_name(ret));
         }
     }
 
