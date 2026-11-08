@@ -184,8 +184,8 @@ static bool bol_command_name_is_safe(const char *name)
  * @param[in]  bytes       The bytes to encode.
  * @param[in]  byte_count  The number of bytes to encode.
  * @param[out] out_text    The buffer that receives two characters per byte and the
- *                         null terminator. It holds at least two times byte_count
- *                         plus one bytes.
+ *                         null terminator. It holds at least 2 x byte_count
+ *                         + 1 bytes.
  */
 static void bol_hex_encode(const uint8_t *bytes, size_t byte_count, char *out_text)
 {
