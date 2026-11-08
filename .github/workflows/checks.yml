@@ -356,3 +356,37 @@ jobs:
             fi
           done
           echo "The output documents every entry point that the check names."
+
+  host:
+    name: Host package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          # The minimum that the Python coding standard and esptool 5 both set.
+          python-version: "3.10"
+
+      - name: Install the host package with its dev extra
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -e 'host[dev]'
+
+      - name: Lint and format the host package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd host
+          ruff check .
+          ruff format --check .
+
+      - name: Check the host package types
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd host
+          mypy --strict src/bolis

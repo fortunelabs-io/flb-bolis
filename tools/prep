@@ -30,6 +30,12 @@ readonly BOL_BENCH_DIR="components/bolis/examples/bench"
 readonly BOL_TEST_APP_DIR="components/bolis/test_apps/json"
 readonly BOL_TEST_SRC="components/bolis/test/test_bol_json.c"
 
+# The host package carries its own virtual environment, because a bare python3
+# may resolve to the environment of an ESP-IDF checkout, which holds neither
+# pytest nor mypy (host/README.md).
+readonly BOL_HOST_DIR="host"
+readonly BOL_HOST_VENV_PY="${BOL_HOST_DIR}/.venv/bin/python3"
+
 readonly BOL_STAGES=(preflight build test measure)
 
 # A stage reports its result through an exit code.
@@ -229,6 +235,22 @@ stage_preflight() {
         check_fail "python3" "absent from PATH"
     fi
 
+    # The host package test environment, which the test stage needs for pytest.
+    if [ -x "${BOL_ROOT}/${BOL_HOST_VENV_PY}" ]; then
+        local host_py
+        host_py="$("${BOL_ROOT}/${BOL_HOST_VENV_PY}" -c \
+            'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+        if "${BOL_ROOT}/${BOL_HOST_VENV_PY}" -c 'import pytest' >/dev/null 2>&1; then
+            check_ok "host test venv" "${BOL_HOST_VENV_PY}, Python ${host_py:-unknown}, pytest installed"
+        else
+            check_fail "host test venv" \
+                "${BOL_HOST_VENV_PY} has no pytest. Run: ${BOL_HOST_VENV_PY} -m pip install -e '${BOL_HOST_DIR}[dev]'"
+        fi
+    else
+        check_fail "host test venv" \
+            "${BOL_HOST_VENV_PY} is absent. Run: python3 -m venv ${BOL_HOST_DIR}/.venv && ${BOL_HOST_VENV_PY} -m pip install -e '${BOL_HOST_DIR}[dev]'"
+    fi
+
     # The tools that mise.toml pins. A stage that needs one of them reports its own
     # absence, and no stage needs every pinned tool, so an absent tool is a warning.
     if [ ! -f "${BOL_ROOT}/mise.toml" ]; then
@@ -340,18 +362,20 @@ stage_build() {
 # ---------------------------------------------------------------------------
 
 # Compiles the reader cases with the host compiler and runs them. Decision record
-# 2026-11-06-host-execution-of-the-reader-tests.md states why the stage uses the
-# host compiler and not the ESP-IDF linux target.
-stage_test() {
+# 2026-11-06-host-execution-of-the-reader-tests.md states why this part uses the
+# host compiler and not the ESP-IDF linux target. The detail for the summary
+# goes into BOL_TEST_C_NOTE rather than through note, because stage_test
+# combines this part with the host package part into one verdict.
+stage_test_c() {
     if ! resolve_idf_path; then
-        note "no ESP-IDF checkout found"
+        BOL_TEST_C_NOTE="no ESP-IDF checkout found"
         say "The stage compiles unity.c of ESP-IDF, and it found no checkout."
         return "${BOL_SKIP}"
     fi
 
     local config_dir="${BOL_ROOT}/${BOL_TEST_APP_DIR}/build/config"
     if [ ! -f "${config_dir}/sdkconfig.h" ]; then
-        note "the generated sdkconfig.h is absent"
+        BOL_TEST_C_NOTE="the generated sdkconfig.h is absent"
         say "unity_config.h of ESP-IDF includes sdkconfig.h, which the build stage generates."
         say "Run: ${BOL_SELF} build"
         return "${BOL_SKIP}"
@@ -360,7 +384,7 @@ stage_test() {
     local host_cc
     host_cc="$(command -v gcc 2>/dev/null || command -v cc 2>/dev/null || true)"
     if [ -z "${host_cc}" ]; then
-        note "no host compiler on PATH"
+        BOL_TEST_C_NOTE="no host compiler on PATH"
         say "Neither gcc nor cc is on PATH."
         return "${BOL_SKIP}"
     fi
@@ -392,7 +416,7 @@ stage_test() {
     step "${host_cc##*/} -std=gnu17 -DUNITY_INCLUDE_CONFIG_H -o prep-out/reader-tests <4 sources>"
     if ! "${host_cc}" -std=gnu17 -DUNITY_INCLUDE_CONFIG_H \
         "${includes[@]}" -o "${binary}" "${sources[@]}" -lm; then
-        note "the host compile failed"
+        BOL_TEST_C_NOTE="the host compile failed"
         return "${BOL_FAIL}"
     fi
     say "the host compile produced prep-out/reader-tests"
@@ -414,7 +438,7 @@ stage_test() {
     if grep -q ':FAIL' "${result_log}"; then
         local failed
         failed="$(grep -c ':FAIL' "${result_log}" || true)"
-        note "${failed} case(s) failed"
+        BOL_TEST_C_NOTE="${failed} case(s) failed"
         return "${BOL_FAIL}"
     fi
 
@@ -425,18 +449,98 @@ stage_test() {
     passed="$(grep -c ':PASS' "${result_log}" || true)"
     if [ "${passed}" -ne "${expected}" ]; then
         say "${passed} of ${expected} cases ran. The run stopped early."
-        note "${passed} of ${expected} cases ran"
+        BOL_TEST_C_NOTE="${passed} of ${expected} cases ran"
         return "${BOL_FAIL}"
     fi
 
     if [ "${rc}" -ne 0 ]; then
-        note "the runner exited with code ${rc}"
+        BOL_TEST_C_NOTE="the runner exited with code ${rc}"
         say "Every case passed and the runner still exited with code ${rc}."
         return "${BOL_FAIL}"
     fi
 
     say "${passed} of ${expected} cases passed [measured]"
-    note "${passed} of ${expected} cases passed"
+    BOL_TEST_C_NOTE="C: ${passed} of ${expected} cases passed"
+    return "${BOL_PASS}"
+}
+
+# Runs the host package pytest cases from host/.venv. host/README.md states
+# why the stage needs its own virtual environment rather than a bare python3.
+# The detail for the summary goes into BOL_TEST_PY_NOTE, for the same reason
+# that stage_test_c writes BOL_TEST_C_NOTE.
+stage_test_py() {
+    local venv_py="${BOL_ROOT}/${BOL_HOST_VENV_PY}"
+    if [ ! -x "${venv_py}" ]; then
+        BOL_TEST_PY_NOTE="host/.venv is absent"
+        say "The stage runs pytest from host/.venv, and it found no such environment."
+        say "Run: python3 -m venv ${BOL_HOST_DIR}/.venv && ${venv_py} -m pip install -e '${BOL_HOST_DIR}[dev]'"
+        return "${BOL_SKIP}"
+    fi
+
+    if ! "${venv_py}" -c 'import pytest' >/dev/null 2>&1; then
+        BOL_TEST_PY_NOTE="host/.venv has no pytest"
+        say "Run: ${venv_py} -m pip install -e '${BOL_HOST_DIR}[dev]'"
+        return "${BOL_SKIP}"
+    fi
+
+    step "${BOL_HOST_VENV_PY} -m pytest"
+    local result_log="${BOL_OUT}/host-pytest.log"
+    local rc=0
+    if (cd -- "${BOL_ROOT}/${BOL_HOST_DIR}" && "${venv_py}" -m pytest) \
+        > "${result_log}" 2>&1; then
+        rc=0
+    else
+        rc=$?
+    fi
+    sed 's/^/    /' "${result_log}"
+    printf '\n'
+
+    if [ "${rc}" -ne 0 ]; then
+        BOL_TEST_PY_NOTE="pytest failed. See prep-out/host-pytest.log."
+        return "${BOL_FAIL}"
+    fi
+
+    local summary_line
+    summary_line="$(grep -oE '[0-9]+ passed in [0-9.]+s' "${result_log}" | tail -1 || true)"
+    say "${summary_line:-pytest passed} [measured]"
+    BOL_TEST_PY_NOTE="host: ${summary_line:-pytest passed}"
+    return "${BOL_PASS}"
+}
+
+# Runs the C reader cases, then the host package pytest cases, and combines
+# the two into one verdict. Either part failing fails the stage. Both parts
+# skipping skips the stage. One part passing while the other skips still
+# passes the stage, and the note states which part ran.
+stage_test() {
+    local rc_c rc_py
+    BOL_TEST_C_NOTE=""
+    BOL_TEST_PY_NOTE=""
+
+    say "C reader cases, with the host compiler."
+    printf '\n'
+    if stage_test_c; then
+        rc_c="${BOL_PASS}"
+    else
+        rc_c=$?
+    fi
+
+    printf '\n'
+    say "Host package cases, with pytest."
+    printf '\n'
+    if stage_test_py; then
+        rc_py="${BOL_PASS}"
+    else
+        rc_py=$?
+    fi
+
+    note "${BOL_TEST_C_NOTE}; ${BOL_TEST_PY_NOTE}"
+
+    if [ "${rc_c}" -eq "${BOL_FAIL}" ] || [ "${rc_py}" -eq "${BOL_FAIL}" ]; then
+        return "${BOL_FAIL}"
+    fi
+    if [ "${rc_c}" -eq "${BOL_SKIP}" ] && [ "${rc_py}" -eq "${BOL_SKIP}" ]; then
+        return "${BOL_SKIP}"
+    fi
     return "${BOL_PASS}"
 }
 
@@ -606,7 +710,7 @@ Usage:
 Stages, in the order that "all" runs them:
   preflight   Report whether every later stage can run. Change nothing.
   build       Build the bench example and the reader test app with idf.py.
-  test        Compile the reader cases with the host compiler, then run them.
+  test        Run the C reader cases on the host, then the host package pytest cases.
   measure     Report the size of each image and the duration of each stage.
 
 Options:
