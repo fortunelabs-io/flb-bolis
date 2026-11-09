@@ -2,7 +2,7 @@
 
 *Fortune Labs. Thinkbook v0.2. 2026-10-01. Companion to the Bolis v0 specification, v0.4.*
 
-This thinkbook holds the theory and the high-level design behind Bolis. The specification states what v0 delivers. This thinkbook states the mechanisms the design rests on and the shape of the design. Where the two disagree, the specification governs until the maintainer accepts a change. Part 3 lists the decision records behind this version.
+This thinkbook holds the theory and the high-level design behind Bolis. The specification states what v0 delivers. This thinkbook states the mechanisms the design rests on and the shape of the design. Where the two disagree, the specification governs until a change is accepted. Part 3 lists the decision records behind this version.
 
 **Labels.** A statement marked `[borrowed]` comes from documentation or a third party, and Fortune Labs has not rerun it. A statement marked `[proposal]` is a design choice or a model that no run has confirmed. No number in this thinkbook is `[measured]`. Section 9 defines the labels for numbers in Bolis artifacts. A key such as [S1] points to the sources at the end.
 
@@ -331,7 +331,7 @@ The report builder reads the run record and writes one static HTML file. The fil
 
 **Rule for "moved loss".** A variable moved loss if two of its cells have Wilson intervals that do not overlap, and their difference exceeds the drift band. The rule runs on the broadcast pass. In a unicast run, it also runs on the unicast pass, and the paragraph names the pass. The paragraph names the variable, the two cells, and their values. The rule is mechanical, so two readers of the same record reach the same paragraph.
 
-**Reproducibility verification.** A result counts as reproduced when a verification pair of two runs passes (decision 6). Both runs use the same bench and the same declared geometry. Between the runs, the maintainer removes both nodes and places them again according to the declared geometry. The second run starts on a later calendar day. The pair passes when the baseline loss intervals of the two runs overlap and the lists of variables that moved loss are identical. Overlapping intervals are a weak test of equality, so the identical list carries most of the test. The `run` section of each record links to the other run of the pair. Until a pair passes, the repository shows the labeled mockup (specification section 6). A failed pair becomes a log entry.
+**Reproducibility verification.** A result counts as reproduced when a verification pair of two runs passes (decision 6). Both runs use the same bench and the same declared geometry. Between the runs, both nodes are removed and placed again according to the declared geometry. The second run starts on a later calendar day. The pair passes when the baseline loss intervals of the two runs overlap and the lists of variables that moved loss are identical. Overlapping intervals are a weak test of equality, so the identical list carries most of the test. The `run` section of each record links to the other run of the pair. Until a pair passes, the repository shows the labeled mockup (specification section 6). A failed pair becomes a log entry.
 
 ### 11. Compatibility, failure handling, and distribution
 
@@ -386,7 +386,7 @@ The records sit in the `docs/adr/` folder. Part 2 cites them by number.
 2. Whether the send failure near 78,000 broadcast frames occurs on a native ESP-IDF build (decision 1).
 3. Whether the read-back transmit power matches the quantization table (section 4).
 4. Whether the send-to-callback histogram shows the retry structure in unicast (section 2).
-5. Whether a verification pair passes on the maintainer's bench (decision 6).
+5. Whether a verification pair passes on the same bench (decision 6).
 
 ---
 
