@@ -10,6 +10,7 @@ from bolis.sweep import (
     build_plan,
     payload_bytes_for_limit,
     resolve_baseline,
+    validate_baseline,
 )
 
 # The literal values below come from thinkbook section 8 and decision
@@ -25,6 +26,8 @@ FALLBACK_BASELINE = Baseline(channel=1, power_set_value=44, payload_bytes=128)
 DEFAULT_PLAN_CELL_COUNT = 36
 GRID_PLAN_CELL_COUNT = 968
 BASELINE_REPEAT_POSITIONS = (5, 11, 17, 23, 29, 35)
+EXPECTED_FRAMES_PER_CELL = 2000
+PAYLOAD_MIN_BYTES = 14
 
 
 def test_payload_bytes_for_limit_v1_matches_the_thinkbook() -> None:
@@ -56,6 +59,61 @@ def test_resolve_baseline_keeps_the_user_configuration_unchanged() -> None:
     baseline, is_fallback = resolve_baseline(user_baseline)
     assert baseline == user_baseline
     assert is_fallback is False
+
+
+def test_validate_baseline_accepts_the_fallback() -> None:
+    """The fallback baseline passes validation unchanged."""
+    assert validate_baseline(FALLBACK_BASELINE) == FALLBACK_BASELINE
+
+
+def test_validate_baseline_accepts_the_range_boundaries() -> None:
+    """A baseline at the channel and payload minimums passes."""
+    edge = Baseline(
+        channel=EXPECTED_CHANNELS[0],
+        power_set_value=EXPECTED_POWER_SET_VALUES[0],
+        payload_bytes=PAYLOAD_MIN_BYTES,
+    )
+    assert validate_baseline(edge) == edge
+
+
+def test_validate_baseline_rejects_a_channel_outside_the_range() -> None:
+    """A baseline channel outside 1 to 11 raises and names the value."""
+    with pytest.raises(BolisSweepError, match="99"):
+        validate_baseline(Baseline(channel=99, power_set_value=44, payload_bytes=128))
+
+
+def test_validate_baseline_rejects_an_unquantized_power_value() -> None:
+    """A baseline power the radio does not quantize to raises and names it."""
+    with pytest.raises(BolisSweepError, match="13"):
+        validate_baseline(Baseline(channel=1, power_set_value=13, payload_bytes=128))
+
+
+def test_validate_baseline_rejects_a_payload_below_the_header() -> None:
+    """A baseline payload smaller than the 14-byte header raises."""
+    with pytest.raises(BolisSweepError, match="13"):
+        validate_baseline(Baseline(channel=1, power_set_value=44, payload_bytes=13))
+
+
+def test_build_plan_rejects_an_invalid_user_baseline() -> None:
+    """An out-of-range baseline raises instead of yielding an inconsistent plan."""
+    bad = Baseline(channel=99, power_set_value=7, payload_bytes=1)
+    with pytest.raises(BolisSweepError):
+        build_plan(bad, PAYLOAD_LIMIT_BYTES_V2, seed=1)
+
+
+def test_build_grid_plan_rejects_an_invalid_user_baseline() -> None:
+    """The grid builder validates its baseline on the same terms."""
+    bad = Baseline(channel=99, power_set_value=7, payload_bytes=1)
+    with pytest.raises(BolisSweepError):
+        build_grid_plan(bad, PAYLOAD_LIMIT_BYTES_V2, seed=1)
+
+
+def test_both_plans_state_the_frames_each_cell_sends() -> None:
+    """Each plan carries the 2000 frames per cell that decision 4 states."""
+    plan = build_plan(None, PAYLOAD_LIMIT_BYTES_V2, seed=1)
+    grid = build_grid_plan(None, PAYLOAD_LIMIT_BYTES_V2, seed=1)
+    assert plan.frames_per_cell == EXPECTED_FRAMES_PER_CELL
+    assert grid.frames_per_cell == EXPECTED_FRAMES_PER_CELL
 
 
 def test_build_plan_has_about_36_cells_for_either_payload_limit() -> None:

@@ -13,7 +13,6 @@ import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal
 
 from bolis import BolisError
 
@@ -28,10 +27,15 @@ CHANNELS: tuple[int, ...] = tuple(range(CHANNEL_MIN, CHANNEL_MAX + 1))
 POWER_SET_VALUES: tuple[int, ...] = (8, 20, 28, 34, 44, 52, 56, 60, 66, 72, 80)
 
 # The packet payload limit L, in bytes (thinkbook section 3.1). L_V1 selects
-# the v1.0 payload list with --limit 250. L_V2 is the default.
+# the v1.0 payload list with --limit 250. L_V2 is the default. The limit
+# reaches this module as an int, because it arrives from the command line,
+# so payload_bytes_for_limit checks it at run time.
 PAYLOAD_LIMIT_BYTES_V1 = 250
 PAYLOAD_LIMIT_BYTES_V2 = 1470
-PayloadLimitBytes = Literal[250, 1470]
+
+# The data frame header is 14 bytes (control line wire format record), so a
+# payload below that could never form one packet.
+PAYLOAD_MIN_BYTES = 14
 
 # The swept payload sizes, in bytes, around the frame boundary for each
 # limit above (thinkbook section 8).
@@ -125,6 +129,8 @@ class CellPlan:
             list follows, 250 or 1470 (thinkbook section 3.1).
         seed: The seed that shuffled the cells, so the order is reproducible
             (thinkbook section 8).
+        frames_per_cell: The frames that one pass sends per cell. The run
+            record states this value (decision 4).
         cells: The cells in the order a pass visits them.
     """
 
@@ -132,7 +138,48 @@ class CellPlan:
     is_fallback_baseline: bool
     payload_limit_bytes: int
     seed: int
+    frames_per_cell: int
     cells: tuple[Cell, ...]
+
+
+def validate_baseline(baseline: Baseline) -> Baseline:
+    """Checks that every value of a baseline falls inside the swept range.
+
+    The command line validates the same three values before a run starts.
+    This module repeats the check, because it accepts a Baseline from any
+    caller, and an out-of-range value would otherwise reach the plan. The
+    channel sweep iterates CHANNELS and would discard a bad channel
+    silently, which yields a plan whose baseline cells and swept cells
+    disagree.
+
+    Args:
+        baseline: The channel, power, and payload to check.
+
+    Returns:
+        The same baseline, unchanged.
+
+    Raises:
+        BolisSweepError: A value sits outside the range that the sweep
+            covers. The message names the value and the valid range.
+    """
+    if not (CHANNEL_MIN <= baseline.channel <= CHANNEL_MAX):
+        raise BolisSweepError(
+            f"the baseline channel is {baseline.channel}. The default country "
+            f"code allows {CHANNEL_MIN} to {CHANNEL_MAX}."
+        )
+    if baseline.power_set_value not in POWER_SET_VALUES:
+        allowed = ", ".join(str(value) for value in POWER_SET_VALUES)
+        raise BolisSweepError(
+            f"the baseline power set value is {baseline.power_set_value}. The "
+            f"radio quantizes to one of: {allowed}."
+        )
+    if baseline.payload_bytes < PAYLOAD_MIN_BYTES:
+        raise BolisSweepError(
+            f"the baseline payload is {baseline.payload_bytes} bytes. The data "
+            f"frame header needs {PAYLOAD_MIN_BYTES} bytes, so the payload "
+            "cannot be smaller."
+        )
+    return baseline
 
 
 def resolve_baseline(user_baseline: Baseline | None) -> tuple[Baseline, bool]:
@@ -146,9 +193,12 @@ def resolve_baseline(user_baseline: Baseline | None) -> tuple[Baseline, bool]:
         A tuple of the resolved baseline and whether it is the fallback
         baseline of thinkbook section 8. The second value is True only when
         user_baseline is None.
+
+    Raises:
+        BolisSweepError: user_baseline holds a value outside the swept range.
     """
     if user_baseline is not None:
-        return user_baseline, False
+        return validate_baseline(user_baseline), False
     return FALLBACK_BASELINE, True
 
 
@@ -254,7 +304,8 @@ def build_plan(
         repeats.
 
     Raises:
-        BolisSweepError: payload_limit_bytes is neither 250 nor 1470.
+        BolisSweepError: payload_limit_bytes is neither 250 nor 1470, or
+            user_baseline holds a value outside the swept range.
     """
     baseline, is_fallback_baseline = resolve_baseline(user_baseline)
     swept = _swept_cells(baseline, payload_limit_bytes)
@@ -268,6 +319,7 @@ def build_plan(
         is_fallback_baseline=is_fallback_baseline,
         payload_limit_bytes=payload_limit_bytes,
         seed=seed,
+        frames_per_cell=FRAMES_PER_CELL,
         cells=cells,
     )
 
@@ -295,7 +347,8 @@ def build_grid_plan(
         The cell plan, with 11 x 11 x 8 = 968 cells.
 
     Raises:
-        BolisSweepError: payload_limit_bytes is neither 250 nor 1470.
+        BolisSweepError: payload_limit_bytes is neither 250 nor 1470, or
+            user_baseline holds a value outside the swept range.
     """
     baseline, is_fallback_baseline = resolve_baseline(user_baseline)
     payload_points = payload_bytes_for_limit(payload_limit_bytes)
@@ -318,5 +371,6 @@ def build_grid_plan(
         is_fallback_baseline=is_fallback_baseline,
         payload_limit_bytes=payload_limit_bytes,
         seed=seed,
+        frames_per_cell=FRAMES_PER_CELL,
         cells=tuple(cells),
     )
