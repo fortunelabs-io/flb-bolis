@@ -4,7 +4,7 @@ Bolis C code follows MISRA C:2012 with Amendment 1 and Amendment 2 (`docs/adr/20
 
 This file cites a guideline by its number only. It carries no text from a MISRA document.
 
-A record carries a status of `Proposed`, `Approved`, or `Withdrawn`. Only the founder sets `Approved`. Code that relies on a record with the status `Proposed` does not merge.
+A record carries a status of `Proposed`, `Approved`, or `Withdrawn`. A record reaches `Approved` only through a decision taken outside the change that proposes it. Code that relies on a record with the status `Proposed` does not merge.
 
 A violation of a Required guideline needs an approved record. A violation of an Advisory guideline needs no record, and it carries an inline note instead. Bolis re-categorizes no guideline and disapplies no guideline.
 
@@ -51,7 +51,7 @@ Mark a line that relies on a record with a suppression comment that names the gu
 
 **Guidelines.** Any guideline whose finding arises only in adopted code.
 
-**Applies to.** Every native C file of Bolis, for findings that a reviewer traces to an adopted header or to the expansion of an adopted macro.
+**Applies to.** Every native C file of Bolis, for findings traced to an adopted header or to the expansion of an adopted macro.
 
 **Circumstances in which a violation is acceptable.** Bolis code includes ESP-IDF and FreeRTOS headers, and it calls their macros, such as `ESP_LOGI` and `WIFI_INIT_CONFIG_DEFAULT`. A checker reports the finding against the line of Bolis code that expands the macro, and not against the adopted header that defines it.
 
@@ -62,6 +62,6 @@ Mark a line that relies on a record with a suppression comment that names the gu
 **Requirements, risk assessment, and precautions.**
 
 - The check excludes adopted paths by file filter and by header filter.
-- A reviewer traces each finding to its origin. A finding that the reviewer cannot trace to an adopted header or macro is a native finding, and this record does not cover it.
+- Each finding is traced to its origin. A finding that cannot be traced to an adopted header or macro is a native finding, and this record does not cover it.
 - A finding that an adopted interface forces in native code, such as a `void *` callback argument, is a native finding. This record does not cover it.
 - The risk is bounded, because the adopted code is a released ESP-IDF version that the run record names, and a reader can rebuild the same image from that version.

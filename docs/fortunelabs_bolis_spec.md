@@ -2,7 +2,7 @@
 
 *Fortune Labs. Working statement, v0.4. 2026-10-01.*
 
-This page specifies the first product. Every item is a `[proposal]` until a run confirms it. No number on this page is `[measured]`. A value in angle brackets is a placeholder that the founder sets before the work starts. Section 14 lists the decision records behind this version. The Bolis thinkbook (v0.2) holds the theory and the high-level design.
+This page specifies the first product. Every item is a `[proposal]` until a run confirms it. No number on this page is `[measured]`. A value in angle brackets is a placeholder set before the work starts. Section 14 lists the decision records behind this version. The Bolis thinkbook (v0.2) holds the theory and the high-level design.
 
 **Change from v0.3.** Seven decision records changed this specification. Bolis is now prebuilt firmware plus a host CLI, and the user flow starts with the installation of the host package (sections 3, 5, and 8.2). Section 4 states the loss metric, the send mode, the PHY rate, the minimum ESP-IDF version, the payload limit, and the sweep plan. Section 6 states the test condition, the number labels, and the reproducibility rule. Sections 12 and 13 follow these changes. Section 14 is new.
 
@@ -22,7 +22,7 @@ The product proves that Fortune Labs ships something people use. It does not tes
 
 ## 2. Name and identifiers
 
-**Decision.** The founder chose the name Bolis on 2026-10-01. The decision is final for v0.
+**Decision.** The name Bolis was chosen on 2026-10-01. The decision is final for v0.
 
 | Item | Value |
 |---|---|
@@ -55,9 +55,9 @@ The name does not contain "esp". Espressif owns ESP and ESP-NOW. The description
 
 **Fallback.** Chalkous (χαλκοῦς), the bronze coin worth one eighth of an obol. A search found no software product with this exact name, and the PyPI name is free. Search results for it mix with "chalkos" and with products named Chalk. The name describes the position of the product under Obol, not its function.
 
-**Clearance status.** A search on 2026-10-01 covered the web, GitHub, and PyPI. It found no software product named Bolis. The results show only surnames and small unrelated repositories. The PyPI name `bolis` is free. In Mexican Spanish, "bolis" names an ice pop. That use is outside classes 9 and 42, and it appears in general search results. The search is shallow and `[borrowed]`. Before publication the founder checks the Indonesian trademark database (classes 9 and 42), the WIPO Global Brand Database, and the Hong Kong IP Department database.
+**Clearance status.** A search on 2026-10-01 covered the web, GitHub, and PyPI. It found no software product named Bolis. The results show only surnames and small unrelated repositories. The PyPI name `bolis` is free. In Mexican Spanish, "bolis" names an ice pop. That use is outside classes 9 and 42, and it appears in general search results. The search is shallow and `[borrowed]`. Before publication, the Indonesian trademark database (classes 9 and 42), the WIPO Global Brand Database, and the Hong Kong IP Department database are checked.
 
-**Registration.** The repository exists as `fortunelabs-io/flb-bolis`. The `flb-` prefix marks a Fortune Labs repository, and the repository description states the function. The package names stay `bolis`, because PyPI and PlatformIO take the name from the package manifest, and the ESP Component Registry takes it from the upload command. GitHub redirects the old repository URL only while no repository in the organization takes the old name, so the name `bolis` stays unused there. The ESP Component Registry, PlatformIO, and PyPI names are taken with the first published package, because each of them requires a package. The ESP Component Registry uses the GitHub account name as the default namespace. If the registry does not grant `fortunelabs-io` through the GitHub login, the founder requests the namespace from Espressif through its Namespace Request Form. The founder files the trademark after the first independent install, unless a clearance search shows a filing risk earlier. The Fortune Labs mark comes first in the sequence. The owner of the Bolis mark follows the decision on the split between Fortunelabs HK and PT Indonesia (section 10).
+**Registration.** The repository exists as `fortunelabs-io/flb-bolis`. The `flb-` prefix marks a Fortune Labs repository, and the repository description states the function. The package names stay `bolis`, because PyPI and PlatformIO take the name from the package manifest, and the ESP Component Registry takes it from the upload command. GitHub redirects the old repository URL only while no repository in the organization takes the old name, so the name `bolis` stays unused there. The ESP Component Registry, PlatformIO, and PyPI names are taken with the first published package, because each of them requires a package. The ESP Component Registry uses the GitHub account name as the default namespace. If the registry does not grant `fortunelabs-io` through the GitHub login, the namespace is requested from Espressif through its Namespace Request Form. The trademark is filed after the first independent install, unless a clearance search shows a filing risk earlier. The Fortune Labs mark comes first in the sequence. The owner of the Bolis mark follows the decision on the split between Fortunelabs HK and PT Indonesia (section 10).
 
 ---
 
@@ -105,7 +105,7 @@ Bolis is a bench tool for ESP-NOW. It consists of firmware for two ESP32 nodes a
 4. Run one host command with the baseline configuration.
 5. Receive one report file.
 
-Steps 1 to 4 take about `<10>` minutes. A user who needs more time exposes a defect in the documentation or the API, and the founder logs it as such.
+Steps 1 to 4 take about `<10>` minutes. A user who needs more time exposes a defect in the documentation or the API. The defect is logged as such.
 
 A user who needs a specific ESP-IDF version or sdkconfig builds the example project `examples/bench` from source. That path needs ESP-IDF v5.5 or later.
 
@@ -119,7 +119,7 @@ A user who needs a specific ESP-IDF version or sdkconfig builds the example proj
 - The coverage and the limits of the run, including the three limits in section 4.
 - An origin label and a link to the run record beside every number, and a legend of the four labels.
 
-**Reproducibility.** A result counts as reproduced when a verification pair passes (decision 6). Both runs of the pair use the same bench and the same declared geometry. Between the runs, the founder removes both nodes and places them again according to the declared geometry. The second run starts on a later calendar day. The pair passes when the baseline loss intervals of the two runs overlap and the lists of variables that moved loss are identical. Until a pair passes, the repository shows a mockup with placeholders. The mockup states that it is a mockup. A failed pair is published as a log entry (section 8.4).
+**Reproducibility.** A result counts as reproduced when a verification pair passes (decision 6). Both runs of the pair use the same bench and the same declared geometry. Between the runs, both nodes are removed and placed again according to the declared geometry. The second run starts on a later calendar day. The pair passes when the baseline loss intervals of the two runs overlap and the lists of variables that moved loss are identical. Until a pair passes, the repository shows a mockup with placeholders. The mockup states that it is a mockup. A failed pair is published as a log entry (section 8.4).
 
 ---
 
@@ -127,7 +127,7 @@ A user who needs a specific ESP-IDF version or sdkconfig builds the example proj
 
 The host CLI sends nothing off the user's machine. The host package carries the firmware images, so flashing needs no network access. A user who wants to share a run record does so by choice, for example by attaching the file to an issue. The repository explains what a record contains: run ID, date, firmware version, test condition, and raw data. A record contains no device identifier that the user did not add. The record stores no MAC address.
 
-The founder adds a shared record to the corpus only with the user's permission, with names removed. The permission is written in the issue thread.
+A shared record enters the corpus only with the user's permission, with names removed. The permission is written in the issue thread.
 
 ---
 
@@ -137,7 +137,7 @@ Bolis has no sales force. Reach depends on where developers already look.
 
 ### 8.1 The rule
 
-The firmware, the component, and the base scripts are open, following the Hwaci pattern. A developer must install, run, and read the report without contacting Fortune Labs. A step that requires contact is a defect. The license is Apache-2.0, which carries a patent grant. The founder accepted it on 2026-10-01, and the repository carries the license text in `LICENSE` (`docs/adr/2026-10-01-apache-2-0-license.md`).
+The firmware, the component, and the base scripts are open, following the Hwaci pattern. A developer must install, run, and read the report without contacting Fortune Labs. A step that requires contact is a defect. The license is Apache-2.0, which carries a patent grant. It was accepted on 2026-10-01, and the repository carries the license text in `LICENSE` (`docs/adr/2026-10-01-apache-2-0-license.md`).
 
 ### 8.2 Channels, in order
 
@@ -158,11 +158,11 @@ A direct reply contains the problem the person described, one reproduced result 
 
 Each reply follows the Social Media Communication Language SOP. Each number from a Bolis report carries its number label (section 4) and a link to the run record. The reply makes no claim about rank.
 
-The founder logs each reply with the date, the thread, and the outcome. The outcome has four values: no response, response without install, install, and correction.
+Each reply is logged with the date, the thread, and the outcome. The outcome has four values: no response, response without install, install, and correction.
 
 ### 8.4 Publication rhythm
 
-Twelve short honest entries across a year outperform one long entry (Threshold Bet 4.5). The founder publishes one log entry per `<n>` weeks. An entry reports one experiment with its condition, its result, and its artifact link. A failed run has the same form as any other entry.
+Twelve short honest entries across a year outperform one long entry (Threshold Bet 4.5). One log entry is published per `<n>` weeks. An entry reports one experiment with its condition, its result, and its artifact link. A failed run has the same form as any other entry.
 
 ### 8.5 Where v0 does not go
 
@@ -182,7 +182,7 @@ An event counts only when a person outside Fortune Labs spent their own effort.
 | Traceable enquiry | A message names Bolis or a log entry without being prompted |
 | Shared record | A third party shares a run record with permission for the corpus |
 
-Downloads, stars, and views do not count. The founder records the download count for reference only, because automated builds can inflate it.
+Downloads, stars, and views do not count. The download count is recorded for reference only, because automated builds can inflate it.
 
 ---
 
@@ -196,7 +196,7 @@ Success has three levels. Only the first two define v0.
 | Data | `<j>` shared records enter the corpus | Loop A receives field-adjacent input |
 | Money | A person pays for interpretation, integration, or a follow-up audit | A bonus. It opens a later step |
 
-The founder sets `<k>`, `<j>`, `<N>`, and the outreach count `<M>` before the first post and records them in the changelog.
+The limits `<k>`, `<j>`, `<N>`, and the outreach count `<M>` are set before the first post and recorded in the changelog.
 
 | Result at the limit | Reading | Response |
 |---|---|---|
@@ -222,7 +222,7 @@ Contributor agreements assign IP to Fortunelabs HK. Client contracts let anonymo
 
 ## 11. Support limit
 
-The founder sets `<h>` hours per week for issues and questions. Items beyond the limit wait. A support load that grows past the limit is a signal to improve the documentation, and hours stay fixed.
+The support limit is `<h>` hours per week for issues and questions. Items beyond the limit wait. A support load that grows past the limit is a signal to improve the documentation, and hours stay fixed.
 
 ---
 
@@ -249,7 +249,7 @@ The founder sets `<h>` hours per week for issues and questions. Items beyond the
     - whether the send failure near 78,000 broadcast frames occurs on a native ESP-IDF build (decision 1),
     - whether the read-back transmit power matches the quantization table,
     - whether the send-to-callback histogram shows the retry structure in unicast,
-    - whether a verification pair passes on the founder's bench (decision 6).
+    - whether a verification pair passes on the same bench (decision 6).
 
 ---
 
