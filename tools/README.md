@@ -13,7 +13,7 @@ mise install               Install every tool that mise.toml pins. Run this once
 mise tasks                 List the stages.
 mise run preflight         Report whether every later stage can run. Change nothing.
 mise run build             Build the bench example and the reader test app.
-mise run test              Compile the reader cases with the host compiler, then run them.
+mise run test              Run the C reader cases on the host, then the host package pytest cases.
 mise run measure           Report the size of each image and the duration of each stage.
 mise run all               Run the four stages in the order above.
 mise run lint-shell        Check every shell script with ShellCheck.
@@ -74,10 +74,24 @@ The `preflight` stage reports each requirement, including whether every tool tha
 
 ### The test stage
 
-The `test` stage compiles `components/bolis/test/host_runner.c`, the reader cases, the
-reader, and the unity sources of ESP-IDF with the host compiler. Decision record
-`docs/adr/2026-11-06-host-execution-of-the-reader-tests.md` states why the stage uses the
-host compiler rather than the ESP-IDF linux target.
+The `test` stage runs two independent parts and combines them into one verdict. Either
+part failing fails the stage. Both parts skipping skips the stage.
 
-The stage needs the generated `sdkconfig.h` of the test app, which the `build` stage
-produces. Run `build` before `test` on a clean checkout.
+The C part compiles `components/bolis/test/host_runner.c`, the reader cases, the reader,
+and the unity sources of ESP-IDF with the host compiler. Decision record
+`docs/adr/2026-11-06-host-execution-of-the-reader-tests.md` states why this part uses the
+host compiler rather than the ESP-IDF linux target. It needs the generated `sdkconfig.h`
+of the test app, which the `build` stage produces. Run `build` before `test` on a clean
+checkout.
+
+The host package part runs `pytest` from `host/.venv`, the virtual environment that
+`host/README.md` describes. A system `python3` may resolve to the Python environment of
+an ESP-IDF checkout, which carries neither `pytest` nor `mypy`, so this part never calls a
+bare `python3`. Create the environment once, before the first run:
+
+```
+python3 -m venv host/.venv
+host/.venv/bin/pip install -e 'host[dev]'
+```
+
+Without that environment, this part reports `SKIP` with the command above.

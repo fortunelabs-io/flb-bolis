@@ -42,7 +42,7 @@ description = "Build the bench example and the reader test app with idf.py."
 run = "./tools/prep build"
 
 [tasks.test]
-description = "Compile the reader cases with the host compiler, then run them."
+description = "Run the C reader cases on the host, then the host package pytest cases."
 run = "./tools/prep test"
 
 [tasks.measure]
