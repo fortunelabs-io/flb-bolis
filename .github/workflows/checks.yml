@@ -376,6 +376,17 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check -e 'host[dev]'
 
+      - name: Install ruff
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The dev extra of host/pyproject.toml carries pytest and mypy, and it carries no
+          # ruff, because mise supplies ruff for a local run. This job runs without mise, so
+          # it installs ruff here. The version matches the pin in mise.toml, so a lint finding
+          # and a format result do not depend on where the check runs.
+          python -m pip install --disable-pip-version-check "ruff==0.17.3"
+          ruff --version
+
       - name: Lint and format the host package
         shell: bash
         run: |
