@@ -4,7 +4,7 @@ Bolis C code follows MISRA C:2012 with Amendment 1 and Amendment 2 (`docs/adr/20
 
 This file cites a guideline by its number only. It carries no text from a MISRA document.
 
-A record carries a status of `Proposed`, `Approved`, or `Withdrawn`. Only the founder sets `Approved`. Code that relies on a record with the status `Proposed` does not merge.
+A record carries a status of `Proposed`, `Approved`, or `Withdrawn`. Only the maintainer sets `Approved`. Code that relies on a record with the status `Proposed` does not merge.
 
 A violation of a Required guideline needs an approved record. A violation of an Advisory guideline needs no record, and it carries an inline note instead. Bolis re-categorizes no guideline and disapplies no guideline.
 
