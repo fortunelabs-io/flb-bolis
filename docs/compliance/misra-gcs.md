@@ -36,7 +36,7 @@ Each check below ran on 2026-11-06 against the firmware component, its test comp
 | Static analysis | cppcheck 2.19.1, `--enable=style` | No finding in a native file |
 | CERT C | Espressif LLVM 19.1.2, `cert-*` | No finding in a native file. Every finding came from an adopted header, under record D-002 |
 | Documentation | Doxygen 1.14.0 | No warning |
-| MISRA C:2012 | cppcheck 2.19.1 MISRA addon without the rule texts, and manual review | Every finding is Rule 10.1 or Rule 10.4 against the expansion of `ESP_LOGx` or `WIFI_INIT_CONFIG_DEFAULT`, under record D-002 |
+| MISRA C:2012 | cppcheck 2.19.1 MISRA addon without the rule texts, and manual review | 20 findings over 18 files: 10 of Rule 10.1, 9 of Rule 10.4, and 1 of Rule 12.2. Each one falls in the expansion of `ESP_LOGx` or `WIFI_INIT_CONFIG_DEFAULT`, under record D-002 |
 | Reader tests | ESP-IDF unity, 11 test cases, run on the host | No failure. No case has run on a node |
 
 The MISRA row states what the addon and the review found. It states no compliance position, because the addon reports a guideline by number only and decides only the guidelines it implements. The reader tests support Dir 4.1. They are not a MISRA check.
