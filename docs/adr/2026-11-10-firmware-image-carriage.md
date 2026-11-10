@@ -1,7 +1,7 @@
 # The host package carries each firmware image with a manifest
 
 Date: 2026-11-10
-Status: Proposed
+Status: Accepted
 
 ## Context
 
