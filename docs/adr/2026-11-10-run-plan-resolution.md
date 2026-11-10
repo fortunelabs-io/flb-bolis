@@ -1,7 +1,7 @@
 # The run command resolves a cell plan from the command line
 
 Date: 2026-11-10
-Status: Proposed
+Status: Accepted
 
 ## Context
 
