@@ -21,6 +21,7 @@ would fix the wire contract by accident, and a change to any key raises
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Final
 
 from bolis import BolisError
@@ -104,7 +105,10 @@ class Reply:
         ok: Whether the node applied the command.
         err: The name of the ESP-IDF error code when ok is false, and None
             when ok is true.
-        fields: Every key of the object that the envelope does not own.
+        fields: Every key of the object that the envelope does not own, as a
+            read-only mapping. The dataclass is frozen, which stops a rebind
+            of this attribute and not a write into the mapping it holds, so
+            decode_reply wraps the mapping as well.
     """
 
     reply: str
@@ -270,6 +274,26 @@ def _require_choice(value: str, allowed: tuple[str, ...], key: str) -> str:
     return value
 
 
+def _strip_one_line_ending(line: str) -> str:
+    """Removes one trailing line ending, and no more.
+
+    A strip of every trailing newline would hide the extra bytes of a line
+    that carries several, and the length check counts the line as it arrived.
+
+    Args:
+        line: One line, with or without its trailing line ending.
+
+    Returns:
+        The line without its last line ending. A line that carries none
+        returns unchanged.
+    """
+    if line.endswith("\r\n"):
+        return line[:-2]
+    if line.endswith(("\n", "\r")):
+        return line[:-1]
+    return line
+
+
 def is_control_line(line: str) -> bool:
     """Reports whether one console line carries a control line.
 
@@ -344,12 +368,17 @@ def decode_reply(line: str) -> Reply:
     node that states a different contract version is refused here, because the
     host refuses a node whose proto differs from its own.
 
+    The length check counts the line as it arrived, including its line ending.
+    A line that carries no ending counts one byte for the newline it travelled
+    with, so the limit means the same thing for a reader that strips the ending
+    and a reader that keeps it.
+
     Args:
         line: One console line that is_control_line accepted, with or without
-            its trailing newline.
+            its trailing line ending.
 
     Returns:
-        The decoded reply.
+        The decoded reply. Its fields mapping is read-only.
 
     Raises:
         BolisProtocolError: The line misses the prefix, exceeds
@@ -358,18 +387,27 @@ def decode_reply(line: str) -> Reply:
             version other than PROTO_VERSION, carries err while ok is true, or
             omits err while ok is false.
     """
-    body = line.rstrip("\n").rstrip("\r")
-    # The contract counts the prefix and the newline inside the limit, and the
-    # newline is gone from body, so the check adds the one byte back.
-    size_bytes = len(body.encode("utf-8")) + 1
+    body = _strip_one_line_ending(line)
+    # The prefix decides whether this is a control line at all, so it is the
+    # first check. A long log line that reaches this function then names the
+    # missing prefix rather than its byte count.
+    if not is_control_line(body):
+        raise BolisProtocolError(
+            f"the line starts with no {LINE_PREFIX!r} prefix, so it is no control line."
+        )
+
+    # The contract counts the prefix and the newline inside the limit, so the
+    # check counts the line as it arrived. A line that carries no ending still
+    # travelled with one, which the check adds. A line that carries a carriage
+    # return and a newline counts both of those bytes, because both crossed
+    # the serial link.
+    size_bytes = len(line.encode("utf-8"))
+    if len(line) == len(body):
+        size_bytes += 1
     if size_bytes > LINE_MAX_BYTES:
         raise BolisProtocolError(
             f"the control line holds {size_bytes} bytes. A control line holds "
             f"at most {LINE_MAX_BYTES} bytes."
-        )
-    if not is_control_line(body):
-        raise BolisProtocolError(
-            f"the line starts with no {LINE_PREFIX!r} prefix, so it is no control line."
         )
 
     text = body[len(LINE_PREFIX) :]
@@ -402,7 +440,14 @@ def decode_reply(line: str) -> Reply:
         err = _require_text(decoded, "err")
 
     fields = {key: value for key, value in decoded.items() if key not in _ENVELOPE_KEYS}
-    return Reply(reply=name, seq=seq, proto=proto, ok=ok, err=err, fields=fields)
+    return Reply(
+        reply=name,
+        seq=seq,
+        proto=proto,
+        ok=ok,
+        err=err,
+        fields=MappingProxyType(fields),
+    )
 
 
 def raise_for_reply(reply: Reply) -> Reply:

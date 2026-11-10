@@ -186,6 +186,31 @@ def test_the_text_form_of_a_reply_hides_the_other_fields() -> None:
     assert SHA256_TEXT not in text
 
 
+def test_every_text_form_of_a_reply_hides_the_other_fields() -> None:
+    """Every text form hides the other fields, not the repr alone.
+
+    A log line usually interpolates a value rather than calling repr, so the
+    class defines no __str__ and str falls through to the custom __repr__.
+    """
+    reply = decode_reply(_hello_line())
+    for text in (str(reply), f"{reply}", format(reply)):
+        assert "hello" in text
+        assert CHIP not in text
+        assert SHA256_TEXT not in text
+
+
+def test_the_fields_of_a_reply_reject_a_write() -> None:
+    """The fields mapping is read-only, so no caller adds or replaces a key.
+
+    The dataclass is frozen, which stops a rebind of the attribute and not a
+    write into the mapping it holds.
+    """
+    reply = decode_reply(_hello_line())
+    with pytest.raises(TypeError):
+        reply.fields["chip"] = "injected"  # type: ignore[index]
+    assert reply.fields["chip"] == CHIP
+
+
 def test_decode_reply_accepts_a_line_without_a_trailing_newline() -> None:
     """A reader that strips the newline still decodes the line."""
     reply = decode_reply(_hello_line().rstrip("\n"))
@@ -204,6 +229,17 @@ def test_decode_reply_rejects_a_line_without_the_prefix() -> None:
         decode_reply('{"proto":1,"reply":"hello","seq":1,"ok":true}')
 
 
+def test_decode_reply_names_the_missing_prefix_before_the_size() -> None:
+    """A long log line names the prefix it misses, not its byte count.
+
+    The prefix decides whether a line is a control line at all, so a line that
+    is no control line never reports against the control line limit.
+    """
+    log_line = "I (1234) wifi: " + "x" * (LINE_MAX_BYTES * 2)
+    with pytest.raises(BolisProtocolError, match="prefix"):
+        decode_reply(log_line)
+
+
 def test_decode_reply_accepts_a_line_at_the_limit() -> None:
     """A line of exactly the limit decodes, so the boundary is inclusive."""
     reply = decode_reply(_line_of_size(LINE_MAX_BYTES))
@@ -214,6 +250,32 @@ def test_decode_reply_rejects_an_oversized_line() -> None:
     """A line one byte above the limit raises and names the size."""
     with pytest.raises(BolisProtocolError, match=str(LINE_MAX_BYTES)):
         decode_reply(_line_of_size(LINE_MAX_BYTES + 1))
+
+
+def test_decode_reply_counts_both_bytes_of_a_carriage_return_ending() -> None:
+    """A carriage return ending costs two bytes of the limit.
+
+    A strip of the ending followed by one byte added back would measure this
+    line at the limit and accept a line that the contract rejects.
+    """
+    at_limit = _line_of_size(LINE_MAX_BYTES).replace("\n", "\r\n")
+    assert len(at_limit.encode("utf-8")) == LINE_MAX_BYTES + 1
+    with pytest.raises(BolisProtocolError, match=str(LINE_MAX_BYTES + 1)):
+        decode_reply(at_limit)
+
+
+def test_decode_reply_accepts_a_carriage_return_ending_inside_the_limit() -> None:
+    """A line whose two ending bytes still fit the limit decodes."""
+    inside = _line_of_size(LINE_MAX_BYTES - 1).replace("\n", "\r\n")
+    assert len(inside.encode("utf-8")) == LINE_MAX_BYTES
+    assert decode_reply(inside).reply == "hello"
+
+
+def test_decode_reply_counts_every_trailing_newline_of_a_line() -> None:
+    """A line with several newlines counts them, rather than stripping them all."""
+    padded = _line_of_size(LINE_MAX_BYTES) + "\n"
+    with pytest.raises(BolisProtocolError, match=str(LINE_MAX_BYTES + 1)):
+        decode_reply(padded)
 
 
 def test_decode_reply_rejects_a_truncated_line() -> None:
