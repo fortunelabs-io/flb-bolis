@@ -36,7 +36,11 @@ bolis = "bolis.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-bolis = ["py.typed"]
+# The images and the manifest reach the wheel from the build directory of a
+# release, where CI writes them. Git tracks neither, so a wheel built from a
+# checkout carries the marker alone
+# (docs/adr/2026-11-10-firmware-image-carriage.md).
+bolis = ["py.typed", "firmware/*.bin", "firmware/manifest.json"]
 
 [tool.ruff]
 target-version = "py310"

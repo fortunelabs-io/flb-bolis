@@ -42,5 +42,8 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Prebuilt firmware images: CI places them in the host package at release time
+# Prebuilt firmware images and the manifest that names their hashes: CI places
+# both in the host package at release time
+# (docs/adr/2026-11-10-firmware-image-carriage.md)
 host/src/bolis/firmware/*.bin
+host/src/bolis/firmware/manifest.json
