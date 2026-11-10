@@ -2,42 +2,61 @@
 
 The command surface follows specification section 5 and thinkbook section 6:
 bolis flash <port> <port> writes the firmware image to both nodes, and bolis
-run <port> <port> [options] sweeps the link and writes one report. Neither
-command is implemented yet. Each one validates its arguments, then raises
-BolisNotImplementedError.
+run <port> <port> [options] sweeps the link and writes one report.
+
+bolis run --print-plan resolves the baseline, builds the cell plan, prints it,
+and returns 0 (decision 2026-11-10-run-plan-resolution.md). Without that flag,
+bolis run builds the same plan and then reports the missing control line.
+bolis flash validates its arguments, then raises BolisNotImplementedError.
 """
 
 import argparse
+import random
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import cast
 
 from bolis import BolisError, __version__
-
-# The 11 transmit power set values, which quantize to 2 to 20 dBm (thinkbook
-# section 4). The value is what the user types and what crosses the control
-# line. The dBm figure is a label on the set, not a separate input.
-POWER_SET_VALUES = (8, 20, 28, 34, 44, 52, 56, 60, 66, 72, 80)
-
-# The channel range that the default country code "01" allows (thinkbook
-# section 4). Bolis v0 exposes no country code option, so this range is fixed.
-CHANNEL_MIN = 1
-CHANNEL_MAX = 11
-
-# The data frame header is 14 bytes (control line wire format record), so a
-# payload below that could never form one packet.
-PAYLOAD_MIN_BYTES = 14
+from bolis.sweep import (
+    CHANNEL_MAX,
+    CHANNEL_MIN,
+    FALLBACK_CHANNEL,
+    FALLBACK_PAYLOAD_BYTES,
+    FALLBACK_POWER_SET_VALUE,
+    PAYLOAD_LIMIT_BYTES_V1,
+    PAYLOAD_LIMIT_BYTES_V2,
+    PAYLOAD_MIN_BYTES,
+    POWER_SET_VALUES,
+    Baseline,
+    CellPlan,
+    build_grid_plan,
+    build_plan,
+)
 
 MODE_CHOICES = ("broadcast", "unicast")
 DEFAULT_MODE = "broadcast"
 
-# The fallback baseline when the user gives no channel, power, or payload
-# (thinkbook section 8): channel 1, power set value 44 (11 dBm), payload 128
-# bytes.
-FALLBACK_CHANNEL = 1
-FALLBACK_POWER_SET_VALUE = 44
-FALLBACK_PAYLOAD_BYTES = 128
+# The two plans of thinkbook section 8. The default plan varies one variable
+# at a time; the grid plan visits every combination.
+PLAN_CHOICES = ("default", "grid")
+DEFAULT_PLAN = "default"
+
+# The packet payload limit L that --limit selects (thinkbook section 8). The
+# v2.0 limit is the default (decision 2026-11-10-run-plan-resolution.md).
+PAYLOAD_LIMIT_CHOICES = (PAYLOAD_LIMIT_BYTES_V1, PAYLOAD_LIMIT_BYTES_V2)
+DEFAULT_PAYLOAD_LIMIT_BYTES = PAYLOAD_LIMIT_BYTES_V2
+
+# The width of the generated shuffle seed, in bits. The run command generates
+# the seed and accepts no seed option, so one cell order never repeats across
+# runs by accident (decision 2026-11-10-run-plan-resolution.md).
+SEED_BITS = 32
+
+# Every number that a plan states is [configured]: Bolis set it before the
+# run, and no node measured it (decision 2026-10-01-number-origin-labels.md).
+# A value computed from a [configured] input carries the label of that input,
+# which covers the cell count and the frames per cell.
+CONFIGURED = "[configured]"
 
 
 class BolisValidationError(BolisError):
@@ -58,14 +77,26 @@ class FlashArgs:
 
 @dataclass(frozen=True)
 class RunArgs:
-    """The validated arguments of the run command."""
+    """The validated arguments of the run command.
+
+    Attributes:
+        sender_port: The serial port of the sender node.
+        receiver_port: The serial port of the receiver node.
+        user_baseline: The baseline that the user configured, or None when the
+            user gave no channel, no transmit power, and no payload size.
+        payload_limit_bytes: The packet payload limit L, 250 or 1470.
+        plan: One of PLAN_CHOICES.
+        mode: One of MODE_CHOICES.
+        print_plan: Whether to print the plan and return 0.
+    """
 
     sender_port: str
     receiver_port: str
-    channel: int
-    power_set_value: int
-    payload_bytes: int
+    user_baseline: Baseline | None
+    payload_limit_bytes: int
+    plan: str
     mode: str
+    print_plan: bool
 
 
 def validate_channel(value: int) -> int:
@@ -146,6 +177,48 @@ def validate_distinct_ports(sender_port: str, receiver_port: str) -> None:
         )
 
 
+def resolve_user_baseline(
+    channel: int | None, power_set_value: int | None, payload_bytes: int | None
+) -> Baseline | None:
+    """Builds the baseline that the user configured, or None for the fallback.
+
+    A baseline option that the user omits takes its fallback value. A plan
+    carries the fallback baseline only when the user gives no channel, no
+    transmit power, and no payload size (decision
+    2026-11-10-run-plan-resolution.md). This function validates each value
+    that the user typed and leaves a fallback value unchecked, because the
+    fallback values of thinkbook section 8 are inside every range.
+
+    Args:
+        channel: The channel the user typed, or None.
+        power_set_value: The transmit power set value the user typed, or None.
+        payload_bytes: The payload size, in bytes, the user typed, or None.
+
+    Returns:
+        The baseline, with a fallback value in place of each omitted option,
+        or None when the user omitted all three options.
+
+    Raises:
+        BolisValidationError: A value that the user typed sits outside its
+            valid range.
+    """
+    if channel is None and power_set_value is None and payload_bytes is None:
+        return None
+    return Baseline(
+        channel=FALLBACK_CHANNEL if channel is None else validate_channel(channel),
+        power_set_value=(
+            FALLBACK_POWER_SET_VALUE
+            if power_set_value is None
+            else validate_power_set_value(power_set_value)
+        ),
+        payload_bytes=(
+            FALLBACK_PAYLOAD_BYTES
+            if payload_bytes is None
+            else validate_payload_bytes(payload_bytes)
+        ),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Builds the argument parser for the bolis command line.
 
@@ -173,31 +246,70 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "receiver_port", help="The serial port of the receiver node."
     )
+    # Each baseline option defaults to None, not to its fallback value. The
+    # plan carries the fallback baseline only when all three are absent, and a
+    # fallback default would make a typed baseline and an absent baseline
+    # arrive here as the same three integers.
     run_parser.add_argument(
         "--channel",
         type=int,
-        default=FALLBACK_CHANNEL,
-        help=f"The baseline channel, {CHANNEL_MIN} to {CHANNEL_MAX}.",
+        default=None,
+        help=(
+            f"The baseline channel, {CHANNEL_MIN} to {CHANNEL_MAX}. "
+            f"The fallback is {FALLBACK_CHANNEL}."
+        ),
     )
     run_parser.add_argument(
         "--power",
         dest="power_set_value",
         type=int,
-        default=FALLBACK_POWER_SET_VALUE,
-        help="The baseline transmit power set value.",
+        default=None,
+        help=(
+            "The baseline transmit power set value. The fallback is "
+            f"{FALLBACK_POWER_SET_VALUE}."
+        ),
     )
     run_parser.add_argument(
         "--payload",
         dest="payload_bytes",
         type=int,
-        default=FALLBACK_PAYLOAD_BYTES,
-        help="The baseline payload size, in bytes.",
+        default=None,
+        help=(
+            "The baseline payload size, in bytes. The fallback is "
+            f"{FALLBACK_PAYLOAD_BYTES}."
+        ),
+    )
+    run_parser.add_argument(
+        "--limit",
+        dest="payload_limit_bytes",
+        type=int,
+        choices=PAYLOAD_LIMIT_CHOICES,
+        default=DEFAULT_PAYLOAD_LIMIT_BYTES,
+        help=(
+            "The packet payload limit L, in bytes. The default is "
+            f"{DEFAULT_PAYLOAD_LIMIT_BYTES}."
+        ),
+    )
+    run_parser.add_argument(
+        "--plan",
+        choices=PLAN_CHOICES,
+        default=DEFAULT_PLAN,
+        help=(
+            "Visit every combination with grid. The default varies one "
+            "variable at a time."
+        ),
     )
     run_parser.add_argument(
         "--mode",
         choices=MODE_CHOICES,
         default=DEFAULT_MODE,
         help="Add the unicast pass with unicast. The default is broadcast.",
+    )
+    run_parser.add_argument(
+        "--print-plan",
+        dest="print_plan",
+        action="store_true",
+        help="Print the resolved cell plan and exit without touching a node.",
     )
 
     return parser
@@ -214,16 +326,120 @@ def _parse_run_args(parsed: argparse.Namespace) -> RunArgs:
     sender_port = cast(str, parsed.sender_port)
     receiver_port = cast(str, parsed.receiver_port)
     validate_distinct_ports(sender_port, receiver_port)
-    channel = validate_channel(cast(int, parsed.channel))
-    power_set_value = validate_power_set_value(cast(int, parsed.power_set_value))
-    payload_bytes = validate_payload_bytes(cast(int, parsed.payload_bytes))
+    user_baseline = resolve_user_baseline(
+        cast("int | None", parsed.channel),
+        cast("int | None", parsed.power_set_value),
+        cast("int | None", parsed.payload_bytes),
+    )
     return RunArgs(
         sender_port=sender_port,
         receiver_port=receiver_port,
-        channel=channel,
-        power_set_value=power_set_value,
-        payload_bytes=payload_bytes,
+        user_baseline=user_baseline,
+        payload_limit_bytes=cast(int, parsed.payload_limit_bytes),
+        plan=cast(str, parsed.plan),
         mode=cast(str, parsed.mode),
+        print_plan=cast(bool, parsed.print_plan),
+    )
+
+
+def generate_seed() -> int:
+    """Generates the shuffle seed of one run.
+
+    The run command generates the seed and accepts no seed option (decision
+    2026-11-10-run-plan-resolution.md).
+
+    Returns:
+        A seed of SEED_BITS bits.
+    """
+    # The seed makes the cell order of one run reproducible from its record.
+    # It is not a secret, so Bandit's S311 does not apply (coding-standard.md).
+    # getrandbits does not raise S311, so this line carries no suppression,
+    # unlike the shuffle in bolis.sweep.
+    return random.getrandbits(SEED_BITS)
+
+
+def build_cell_plan(args: RunArgs, seed: int) -> CellPlan:
+    """Builds the cell plan that the run arguments select.
+
+    Args:
+        args: The validated arguments of the run command.
+        seed: The seed that shuffles the cell order.
+
+    Returns:
+        The cell plan of the selected plan kind.
+
+    Raises:
+        BolisSweepError: The baseline or the payload limit sits outside the
+            range that the sweep covers.
+    """
+    builder = build_grid_plan if args.plan == "grid" else build_plan
+    return builder(args.user_baseline, args.payload_limit_bytes, seed)
+
+
+def format_plan(plan: CellPlan, plan_name: str, mode: str) -> str:
+    """Formats a cell plan as the text that --print-plan writes.
+
+    Every number carries the label `[configured]`. The output states no MAC
+    address, which follows specification section 7. It is not the report:
+    specification section 6 governs the report, and this text carries no
+    chart, no interval, and no link to a run record.
+
+    Args:
+        plan: The cell plan to format.
+        plan_name: One of PLAN_CHOICES, which names the plan kind.
+        mode: One of MODE_CHOICES, which names the send mode of the run.
+
+    Returns:
+        The plan as text, with one line per cell and no trailing newline.
+    """
+    baseline_source = "fallback" if plan.is_fallback_baseline else "user"
+    lines = [
+        "bolis run plan",
+        "",
+        f"Plan: {plan_name}",
+        f"Mode: {mode}",
+        f"Baseline source: {baseline_source}",
+        f"Baseline channel: {plan.baseline.channel} {CONFIGURED}",
+        f"Baseline power set value: {plan.baseline.power_set_value} {CONFIGURED}",
+        f"Baseline payload: {plan.baseline.payload_bytes} bytes {CONFIGURED}",
+        f"Payload limit: {plan.payload_limit_bytes} bytes {CONFIGURED}",
+        f"Shuffle seed: {plan.seed} {CONFIGURED}",
+        f"Frames per cell: {plan.frames_per_cell} {CONFIGURED}",
+        f"Cells: {len(plan.cells)} {CONFIGURED}",
+        "",
+        (
+            "Cells, in the order one pass visits them. Every number below is "
+            f"{CONFIGURED}."
+        ),
+        "",
+    ]
+    lines.extend(
+        f"{index:>5}  channel {cell.channel:>2}  "
+        f"power {cell.power_set_value:>2}  "
+        f"payload {cell.payload_bytes:>4} bytes  {cell.variable.value}"
+        for index, cell in enumerate(plan.cells, start=1)
+    )
+    return "\n".join(lines)
+
+
+def summarize_plan(plan: CellPlan, plan_name: str) -> str:
+    """States a cell plan in one sentence, for a message that carries no table.
+
+    Args:
+        plan: The cell plan to summarize.
+        plan_name: One of PLAN_CHOICES, which names the plan kind.
+
+    Returns:
+        The summary, with a label on every number.
+    """
+    baseline_source = "the fallback" if plan.is_fallback_baseline else "the configured"
+    return (
+        f"The {plan_name} plan holds {len(plan.cells)} cells {CONFIGURED} around "
+        f"{baseline_source} baseline of channel {plan.baseline.channel} "
+        f"{CONFIGURED}, power set value {plan.baseline.power_set_value} "
+        f"{CONFIGURED}, and payload {plan.baseline.payload_bytes} bytes "
+        f"{CONFIGURED}, with seed {plan.seed} {CONFIGURED} and "
+        f"{plan.frames_per_cell} frames per cell {CONFIGURED}."
     )
 
 
@@ -237,11 +453,15 @@ def _run_flash(parsed: argparse.Namespace) -> int:
 
 def _run_run(parsed: argparse.Namespace) -> int:
     args = _parse_run_args(parsed)
+    plan = build_cell_plan(args, generate_seed())
+    if args.print_plan:
+        print(format_plan(plan, args.plan, args.mode))
+        return 0
+    summary = summarize_plan(plan, args.plan)
     raise BolisNotImplementedError(
         "bolis run is not implemented yet. It will sweep the link between "
-        f"{args.sender_port} and {args.receiver_port} from channel {args.channel}, "
-        f"power set value {args.power_set_value}, and payload {args.payload_bytes} "
-        f"bytes, in {args.mode} mode."
+        f"{args.sender_port} and {args.receiver_port} in {args.mode} mode once "
+        f"the host reaches a node over the control line. {summary}"
     )
 
 
