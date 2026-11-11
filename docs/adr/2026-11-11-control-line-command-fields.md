@@ -1,7 +1,7 @@
 # The field keys of the role, cell, go, and stats commands
 
 Date: 2026-11-11
-Status: Proposed
+Status: Accepted
 
 ## Context
 
