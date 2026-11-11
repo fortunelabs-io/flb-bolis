@@ -7,7 +7,11 @@ run <port> <port> [options] sweeps the link and writes one report.
 bolis run --print-plan resolves the baseline, builds the cell plan, prints it,
 and returns 0 (decision 2026-11-10-run-plan-resolution.md). Without that flag,
 bolis run builds the same plan and then reports the missing control line.
-bolis flash validates its arguments, then raises BolisNotImplementedError.
+
+bolis flash validates its ports and reads the firmware manifest, then reports
+the missing control line transport. It writes nothing to a node, because the
+check that proves what runs on a node reads a hello reply over that transport
+(decision 2026-11-10-firmware-image-carriage.md).
 """
 
 import argparse
@@ -445,9 +449,28 @@ def summarize_plan(plan: CellPlan, plan_name: str) -> str:
 
 def _run_flash(parsed: argparse.Namespace) -> int:
     args = _parse_flash_args(parsed)
+    # The flasher imports esptool, which costs more to import than the rest of
+    # this package. The run command needs neither, so the import sits here
+    # rather than at the top of the file.
+    from bolis.flasher import read_manifest, validate_local_port  # noqa: PLC0415
+
+    validate_local_port(args.sender_port)
+    validate_local_port(args.receiver_port)
+
+    # The carriage record makes the hello reply after a write the one check
+    # that proves what runs on a node, and no transport reads that reply yet.
+    # Writing an image that nothing then confirms would leave a node in a
+    # state no record states, so this command writes nothing. Reading the
+    # manifest is the part of the flash that needs no node, and it reports
+    # whether this package carries an image at all.
+    manifest = read_manifest()
+    carried = ", ".join(sorted(manifest))
     raise BolisNotImplementedError(
-        f"bolis flash is not implemented yet. It will flash {args.sender_port} "
-        f"and {args.receiver_port} through the esptool Python API."
+        f"bolis flash is not implemented yet. This package carries an image "
+        f"for: {carried}. The flasher writes an image through the esptool "
+        "Python API, then reads the hello reply of a node to prove what runs "
+        "on it. No control line transport reads that reply yet, so this "
+        f"command wrote nothing to {args.sender_port} or {args.receiver_port}."
     )
 
 
