@@ -14,3 +14,4 @@ Status: pre-release. The firmware component owns the radio and builds. The contr
 | `schema/` | The JSON Schema of the run record format |
 | `docs/` | The Doxygen configuration and the MISRA compliance files |
 | `docs/adr/` | The decision records |
+| `docs/record-lifecycle.md` | The status lifecycle of a decision record and of a deviation record |
