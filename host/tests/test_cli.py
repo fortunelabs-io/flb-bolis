@@ -1,10 +1,13 @@
 """Tests for the bolis command line interface."""
 
 import itertools
+import json
 import re
+from pathlib import Path
 
 import pytest
 
+import bolis.flasher
 from bolis.cli import (
     BolisValidationError,
     RunArgs,
@@ -317,11 +320,54 @@ def test_main_lists_flash_and_run_in_help(capsys: pytest.CaptureFixture[str]) ->
     assert "run" in out
 
 
-def test_main_flash_is_not_implemented(capsys: pytest.CaptureFixture[str]) -> None:
-    """Bolis flash validates its ports, then reports that it is not implemented yet."""
+def test_main_flash_reports_that_a_checkout_carries_no_image(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A checkout carries no manifest, so the command names that first."""
     status = main(["flash", *PORTS])
     assert status == 1
-    assert "not implemented" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "no prebuilt image" in err
+    assert "a checkout does not" in err
+
+
+def test_main_flash_reports_the_missing_transport_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With a manifest present, the command names the chip and the real blocker.
+
+    The check that proves what runs on a node reads a hello reply, and no
+    transport reads one yet, so the command writes nothing rather than leaving
+    a node in a state that no check confirmed.
+    """
+    manifest = {
+        "manifest_version": 1,
+        "images": [
+            {
+                "chip": "esp32",
+                "file": "bolis-esp32.bin",
+                "sha256": "ab" * 32,
+                "elf_sha256": "cd" * 32,
+                "bolis_version": "0.1.0",
+            }
+        ],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(bolis.flasher, "FIRMWARE_DIRECTORY", tmp_path)
+
+    status = main(["flash", *PORTS])
+    assert status == 1
+    err = capsys.readouterr().err
+    assert "esp32" in err
+    assert "wrote nothing" in err
+    assert "transport" in err
+
+
+def test_main_flash_refuses_a_url_port(capsys: pytest.CaptureFixture[str]) -> None:
+    """A port that pyserial would read as a URL never reaches esptool."""
+    status = main(["flash", "rfc2217://10.0.0.5:4000", PORTS[1]])
+    assert status == 1
+    assert "URL" in capsys.readouterr().err
 
 
 def test_main_run_uses_the_fallback_baseline_when_no_option_is_given(
