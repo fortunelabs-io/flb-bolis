@@ -29,6 +29,12 @@ env:
     components/bolis/test_apps
     components/bolis/examples/bench/main
 
+  # The cppcheck version behind the compliance evidence. The MISRA job builds this
+  # version from source and fails when the build produces another one
+  # (docs/adr/2026-11-09-cppcheck-version-pin.md). docs/compliance/misra-gcs.md names
+  # the same version. A change here changes that file in the same pull request.
+  BOL_CPPCHECK_VERSION: "2.19.1"
+
 jobs:
   build:
     name: Build on ESP-IDF ${{ matrix.idf }}
@@ -164,13 +170,46 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install cppcheck
+      - name: Build cppcheck from source
         shell: bash
         run: |
           set -euo pipefail
+          # The apt of this image carried cppcheck 2.13.0, which reports none of the
+          # Rule 10.4 findings that the compliance evidence records, so CI checked less
+          # than docs/compliance/misra-gcs.md claimed. The job builds the pinned version
+          # instead (docs/adr/2026-11-09-cppcheck-version-pin.md).
           apt-get update
-          apt-get install --yes --no-install-recommends cppcheck
-          cppcheck --version
+          apt-get install --yes --no-install-recommends cmake curl g++ make
+          curl -fsSL -o cppcheck.tar.gz \
+            "https://github.com/danmar/cppcheck/archive/refs/tags/${BOL_CPPCHECK_VERSION}.tar.gz"
+          mkdir -p cppcheck-src
+          tar -xzf cppcheck.tar.gz -C cppcheck-src --strip-components=1
+          # The match compiler and the rule back end both lengthen the build. The MISRA
+          # addon needs neither: it reads a dump that cppcheck writes, through python3.
+          cmake -S cppcheck-src -B cppcheck-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_MATCHCOMPILER=OFF \
+            -DHAVE_RULES=OFF
+          cmake --build cppcheck-build --parallel "$(nproc)"
+          cmake --install cppcheck-build
+
+      - name: Assert the cppcheck version matches the pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A cppcheck that the image already carries would otherwise pass as the pinned
+          # one, so the job states which binary answers and compares its version.
+          printf 'cppcheck resolves to: %s\n' "$(command -v cppcheck)"
+          printf 'cppcheck reports: %s\n' "$(cppcheck --version)"
+          built="$(cppcheck --version | awk '{print $2}')"
+          if [ "${built}" != "${BOL_CPPCHECK_VERSION}" ]; then
+            printf 'the pin is %s and the binary reports %s.\n' \
+              "${BOL_CPPCHECK_VERSION}" "${built}"
+            exit 1
+          fi
+          # The addon reaches cppcheck by path, so the layout that cmake --install chose
+          # cannot change which script runs.
+          test -f cppcheck-src/addons/misra.py
 
       - name: Build to produce the compilation databases
         shell: bash
@@ -199,7 +238,7 @@ jobs:
                     components/bolis/test_apps/json/build; do
             cppcheck \
               --project="${db}/compile_commands.json" \
-              --addon=misra \
+              --addon=cppcheck-src/addons/misra.py \
               --file-filter='*components/bolis/*' \
               --inline-suppr \
               --enable=style \

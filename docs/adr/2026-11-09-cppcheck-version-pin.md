@@ -1,7 +1,7 @@
 # cppcheck 2.19.1 pinned and built from source for the MISRA check
 
 Date: 2026-11-09
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -23,8 +23,8 @@ CI pins cppcheck 2.19.1, which is the version behind the compliance evidence. Th
 
 - CI and the compliance evidence check the same guidelines, so a claim in `docs/compliance/misra-gcs.md` holds for a pull request.
 - Rule 10.4 stays under check before the sweep adds the arithmetic that the rule governs.
-- The MISRA job gains `<unmeasured>` minutes for the source build, against the job timeout of 30 minutes.
-- The first run of the job states that time, and a cache for the build becomes a question once that number exists.
+- The MISRA job gains 1 minute and 19 seconds for the source build, against the job timeout of 30 minutes. That figure covers the build requirements, the download, the compile, and the install, and it comes from the first run of the job.
+- The source build needs no cache at that cost. A cache becomes a question again if a later cppcheck release lengthens the build.
 - The job depends on the build requirements of cppcheck, which it installs in the container.
 - This rules out reading the checker from apt, so a new release of the base image no longer changes the result of the check on its own.
 - A contributor on another distribution can hold a different version, and the compliance procedure reports the version that it ran.
