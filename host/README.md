@@ -1,6 +1,6 @@
 # Bolis host package
 
-The Python package `bolis` on PyPI. It holds the CLI, the flasher, the orchestrator, the run record writer, and the report builder (thinkbook section 6). It supports Python 3.10 and later.
+The Python package `bolis` on PyPI. Thinkbook section 6 gives it the CLI, the flasher, the orchestrator, the run record writer, and the report builder. It holds the CLI, the flasher, the control line codec, and the sweep plan today. It supports Python 3.10 and later.
 
 The package sends nothing off the machine of the user (specification section 7).
 
