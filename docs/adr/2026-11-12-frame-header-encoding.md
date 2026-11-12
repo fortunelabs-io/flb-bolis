@@ -1,7 +1,7 @@
 # The byte encoding of the frame header and the carrier of the run ID
 
 Date: 2026-11-12
-Status: Proposed
+Status: Accepted
 
 ## Context
 
