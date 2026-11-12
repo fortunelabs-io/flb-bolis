@@ -1,7 +1,7 @@
 """The Bolis host package.
 
-Holds the CLI, the flasher, the orchestrator, the run record writer, and the
-report builder (thinkbook section 6).
+Holds the CLI, the flasher, the control line codec, the control line
+transport, and the sweep plan.
 """
 
 from importlib.metadata import version

@@ -8,9 +8,9 @@ bolis run --print-plan resolves the baseline, builds the cell plan, prints it,
 and returns 0 (decision 2026-11-10-run-plan-resolution.md). Without that flag,
 bolis run builds the same plan and then reports the missing control line.
 
-bolis flash validates its ports and reads the firmware manifest, then reports
-the missing control line transport. It writes nothing to a node, because the
-check that proves what runs on a node reads a hello reply over that transport
+bolis flash writes the image to both nodes through the esptool Python API,
+then reads the hello reply of each node over the control line transport. That
+reply is the check that proves what runs on a node
 (decision 2026-11-10-firmware-image-carriage.md).
 """
 
@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from bolis import BolisError, __version__
+from bolis.protocol import Hello, decode_reply, parse_hello, require_same_firmware
 from bolis.sweep import (
     CHANNEL_MAX,
     CHANNEL_MIN,
@@ -61,6 +62,10 @@ SEED_BITS = 32
 # A value computed from a [configured] input carries the label of that input,
 # which covers the cell count and the frames per cell.
 CONFIGURED = "[configured]"
+
+# A value that a node counted or read during the run carries this label
+# (decision 2026-10-01-number-origin-labels.md).
+MEASURED = "[measured]"
 
 
 class BolisValidationError(BolisError):
@@ -447,31 +452,70 @@ def summarize_plan(plan: CellPlan, plan_name: str) -> str:
     )
 
 
+def format_node(role: str, port: str, hello: Hello) -> str:
+    """States the condition that one node reported in its hello reply.
+
+    Every value here is `[measured]`: a node read it and reported it
+    (decision 2026-10-01-number-origin-labels.md).
+
+    Args:
+        role: The role that the node takes, sender or receiver.
+        port: The serial port of the node.
+        hello: The test condition that the node reported.
+
+    Returns:
+        One line per node.
+    """
+    return (
+        f"{role} on {port}: {hello.chip} revision {hello.chip_revision} "
+        f"{MEASURED}, ESP-IDF {hello.idf_version} {MEASURED}, ESP-NOW version "
+        f"{hello.espnow_version} {MEASURED}, payload limit "
+        f"{hello.payload_limit_bytes} bytes {MEASURED}, Bolis "
+        f"{hello.bolis_version} {MEASURED}, {hello.firmware_path} firmware, "
+        f"Bluetooth controller {hello.bluetooth_controller}."
+    )
+
+
 def _run_flash(parsed: argparse.Namespace) -> int:
     args = _parse_flash_args(parsed)
     # The flasher imports esptool, which costs more to import than the rest of
     # this package. The run command needs neither, so the import sits here
     # rather than at the top of the file.
-    from bolis.flasher import read_manifest, validate_local_port  # noqa: PLC0415
+    from bolis import transport  # noqa: PLC0415
+    from bolis.flasher import flash_pair  # noqa: PLC0415
 
-    validate_local_port(args.sender_port)
-    validate_local_port(args.receiver_port)
-
-    # The carriage record makes the hello reply after a write the one check
-    # that proves what runs on a node, and no transport reads that reply yet.
-    # Writing an image that nothing then confirms would leave a node in a
-    # state no record states, so this command writes nothing. Reading the
-    # manifest is the part of the flash that needs no node, and it reports
-    # whether this package carries an image at all.
-    manifest = read_manifest()
-    carried = ", ".join(sorted(manifest))
-    raise BolisNotImplementedError(
-        f"bolis flash is not implemented yet. This package carries an image "
-        f"for: {carried}. The flasher writes an image through the esptool "
-        "Python API, then reads the hello reply of a node to prove what runs "
-        "on it. No control line transport reads that reply yet, so this "
-        f"command wrote nothing to {args.sender_port} or {args.receiver_port}."
+    sender, receiver = flash_pair(
+        args.sender_port, args.receiver_port, transport.read_hello_line
     )
+    print(format_node("sender", args.sender_port, sender))
+    print(format_node("receiver", args.receiver_port, receiver))
+    print("Both nodes run the image that this package carries.")
+    return 0
+
+
+def _read_pair(sender_port: str, receiver_port: str) -> tuple[Hello, Hello]:
+    """Reads the hello reply of each node and refuses a mismatched pair.
+
+    The host stops before the first cell when the two nodes report different
+    firmware (thinkbook section 11).
+
+    Args:
+        sender_port: The serial port of the node that takes the sender role.
+        receiver_port: The serial port of the node that takes the receiver
+            role.
+
+    Returns:
+        The test condition of the sender and of the receiver, in that order.
+
+    Raises:
+        BolisProtocolError: The two nodes report different firmware.
+    """
+    from bolis import transport  # noqa: PLC0415
+
+    sender = parse_hello(decode_reply(transport.read_hello_line(sender_port)))
+    receiver = parse_hello(decode_reply(transport.read_hello_line(receiver_port)))
+    require_same_firmware(sender, receiver)
+    return sender, receiver
 
 
 def _run_run(parsed: argparse.Namespace) -> int:
@@ -480,11 +524,17 @@ def _run_run(parsed: argparse.Namespace) -> int:
     if args.print_plan:
         print(format_plan(plan, args.plan, args.mode))
         return 0
+
+    sender, receiver = _read_pair(args.sender_port, args.receiver_port)
+    print(format_node("sender", args.sender_port, sender))
+    print(format_node("receiver", args.receiver_port, receiver))
+
     summary = summarize_plan(plan, args.plan)
     raise BolisNotImplementedError(
-        "bolis run is not implemented yet. It will sweep the link between "
-        f"{args.sender_port} and {args.receiver_port} in {args.mode} mode once "
-        f"the host reaches a node over the control line. {summary}"
+        "bolis run reached both nodes and they report the same firmware. The "
+        f"sweep of the link between {args.sender_port} and "
+        f"{args.receiver_port} in {args.mode} mode needs the orchestrator, "
+        f"which sends the role, cell, go, and stats commands. {summary}"
     )
 
 
