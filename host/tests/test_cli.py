@@ -1,5 +1,6 @@
 """Tests for the bolis command line interface."""
 
+import hashlib
 import itertools
 import json
 import re
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import bolis.flasher
+import bolis.transport
 from bolis.cli import (
     BolisValidationError,
     RunArgs,
@@ -43,6 +45,92 @@ EXPECTED_DEFAULT_PLAN_CELL_COUNT = 36
 EXPECTED_GRID_PLAN_CELL_COUNT = 968
 EXPECTED_FRAMES_PER_CELL = 2000
 EXPECTED_SEED_BITS = 32
+
+# The ELF hash that the manifest names and that a node reports after a write.
+NODE_ELF_SHA256 = "ab" * 32
+OTHER_ELF_SHA256 = "cd" * 32
+
+
+def hello_line(elf_sha256: str = NODE_ELF_SHA256, **overrides: object) -> str:
+    """Builds the hello reply line that a node writes.
+
+    Args:
+        elf_sha256: The ELF hash that the node reports.
+        overrides: Keys to add to the object, or to replace in it.
+
+    Returns:
+        The control line, with its prefix and its line ending.
+    """
+    fields: dict[str, object] = {
+        "proto": 1,
+        "reply": "hello",
+        "seq": 0,
+        "ok": True,
+        "chip": "esp32",
+        "chip_revision": 301,
+        "idf_version": "v5.5.4",
+        "espnow_version": 2,
+        "payload_limit_bytes": 1470,
+        "bolis_version": "0.1.0",
+        "firmware_path": "prebuilt",
+        "elf_sha256": elf_sha256,
+        "bluetooth_controller": "disabled",
+    }
+    fields.update(overrides)
+    return "@bol " + json.dumps(fields, separators=(",", ":")) + "\n"
+
+
+class FakeFlashBackend:
+    """The esptool entry points, with no node and no serial port."""
+
+    def __init__(self) -> None:
+        """Records nothing written until a call arrives."""
+        self.written: list[tuple[str, int]] = []
+        self.reset_ports: list[str] = []
+
+    def detect_chip(self, port: str, baud: int) -> str:
+        """Returns the port as the loader, which names the node."""
+        return port
+
+    def attach_flash(self, esp: str) -> None:
+        """Attaches the flash of the node."""
+
+    def write_flash(self, esp: str, addr_data: list[tuple[int, bytes]]) -> None:
+        """Records the address and the size of each written block."""
+        self.written.extend((esp, len(data)) for _address, data in addr_data)
+
+    def reset_chip(self, esp: str) -> None:
+        """Records that the node restarted."""
+        self.reset_ports.append(esp)
+
+    def chip_name(self, esp: str) -> str:
+        """Returns the chip name that the loader reports."""
+        return "ESP32"
+
+
+def write_firmware(directory: Path, elf_sha256: str = NODE_ELF_SHA256) -> None:
+    """Writes one image and a manifest that names it.
+
+    Args:
+        directory: The firmware directory that the flasher reads.
+        elf_sha256: The ELF hash that the manifest names.
+    """
+    image = directory / "bolis-esp32.bin"
+    image.write_bytes(b"firmware")
+    manifest = {
+        "manifest_version": 1,
+        "images": [
+            {
+                "chip": "esp32",
+                "file": "bolis-esp32.bin",
+                "sha256": hashlib.sha256(b"firmware").hexdigest(),
+                "elf_sha256": elf_sha256,
+                "bolis_version": "0.1.0",
+            }
+        ],
+    }
+    (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
 
 # One fixed seed, so a plan test reads the same cell order on every run.
 FIXED_SEED = 12345
@@ -218,16 +306,50 @@ def test_the_plan_reports_the_fallback_baseline_only_when_all_three_are_absent(
 
 
 def test_print_plan_returns_zero_and_a_run_without_it_returns_one(
-    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Two statuses report two outcomes: a plan built, and a run blocked."""
+    """Two statuses report two outcomes: a plan built, and a run blocked.
+
+    The plan needs no node, so --print-plan opens no port. A run reaches both
+    nodes and then stops, because the orchestrator does not exist.
+    """
     assert main(["run", *PORTS, "--print-plan"]) == 0
     assert "bolis run plan" in capsys.readouterr().out
 
+    monkeypatch.setattr(bolis.transport, "read_hello_line", lambda _port: hello_line())
     assert main(["run", *PORTS]) == 1
-    err = capsys.readouterr().err
-    assert "not implemented" in err
-    assert "plan holds" in err
+    captured = capsys.readouterr()
+    assert "orchestrator" in captured.err
+    assert "plan holds" in captured.err
+    assert "sender" in captured.out
+
+
+def test_main_run_opens_no_port_for_a_plan(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A user without a bench still reads the plan that a run would follow."""
+
+    def refuse(_port: str) -> str:
+        message = "the plan must not open a port"
+        raise AssertionError(message)
+
+    monkeypatch.setattr(bolis.transport, "read_hello_line", refuse)
+
+    assert main(["run", *PORTS, "--print-plan"]) == 0
+    assert "bolis run plan" in capsys.readouterr().out
+
+
+def test_main_run_stops_when_the_two_nodes_differ_in_firmware(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The host refuses a mismatched pair before the first cell."""
+    lines = iter([hello_line(), hello_line(elf_sha256=OTHER_ELF_SHA256)])
+    monkeypatch.setattr(bolis.transport, "read_hello_line", lambda _port: next(lines))
+
+    status = main(["run", *PORTS])
+
+    assert status == 1
+    assert "firmware" in capsys.readouterr().err
 
 
 def test_the_default_plan_carries_the_cell_count_of_the_thinkbook() -> None:
@@ -331,36 +453,43 @@ def test_main_flash_reports_that_a_checkout_carries_no_image(
     assert "a checkout does not" in err
 
 
-def test_main_flash_reports_the_missing_transport_and_writes_nothing(
+def test_main_flash_writes_both_nodes_and_reports_what_runs_on_them(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """With a manifest present, the command names the chip and the real blocker.
-
-    The check that proves what runs on a node reads a hello reply, and no
-    transport reads one yet, so the command writes nothing rather than leaving
-    a node in a state that no check confirmed.
-    """
-    manifest = {
-        "manifest_version": 1,
-        "images": [
-            {
-                "chip": "esp32",
-                "file": "bolis-esp32.bin",
-                "sha256": "ab" * 32,
-                "elf_sha256": "cd" * 32,
-                "bolis_version": "0.1.0",
-            }
-        ],
-    }
-    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    """The command writes the image to both nodes and reads the hello of each."""
+    write_firmware(tmp_path)
+    backend = FakeFlashBackend()
     monkeypatch.setattr(bolis.flasher, "FIRMWARE_DIRECTORY", tmp_path)
+    monkeypatch.setattr(bolis.flasher, "EsptoolBackend", lambda: backend)
+    monkeypatch.setattr(bolis.transport, "read_hello_line", lambda _port: hello_line())
 
     status = main(["flash", *PORTS])
+
+    assert status == 0
+    assert backend.reset_ports == list(PORTS)
+    out = capsys.readouterr().out
+    assert "sender" in out
+    assert "receiver" in out
+    assert "[measured]" in out
+
+
+def test_main_flash_stops_when_a_node_reports_another_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A node whose ELF hash differs from the entry fails the check that proves it."""
+    write_firmware(tmp_path)
+    monkeypatch.setattr(bolis.flasher, "FIRMWARE_DIRECTORY", tmp_path)
+    monkeypatch.setattr(bolis.flasher, "EsptoolBackend", FakeFlashBackend)
+    monkeypatch.setattr(
+        bolis.transport,
+        "read_hello_line",
+        lambda _port: hello_line(elf_sha256=OTHER_ELF_SHA256),
+    )
+
+    status = main(["flash", *PORTS])
+
     assert status == 1
-    err = capsys.readouterr().err
-    assert "esp32" in err
-    assert "wrote nothing" in err
-    assert "transport" in err
+    assert OTHER_ELF_SHA256 in capsys.readouterr().err
 
 
 def test_main_flash_refuses_a_url_port(capsys: pytest.CaptureFixture[str]) -> None:
@@ -371,9 +500,10 @@ def test_main_flash_refuses_a_url_port(capsys: pytest.CaptureFixture[str]) -> No
 
 
 def test_main_run_uses_the_fallback_baseline_when_no_option_is_given(
-    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Bolis run with no option names the fallback channel, power, and payload."""
+    monkeypatch.setattr(bolis.transport, "read_hello_line", lambda _port: hello_line())
     status = main(["run", *PORTS])
     assert status == 1
     err = capsys.readouterr().err

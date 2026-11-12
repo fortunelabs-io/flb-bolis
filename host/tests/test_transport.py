@@ -8,6 +8,7 @@ import json
 
 import pytest
 
+from bolis import BolisError
 from bolis.protocol import (
     LINE_PREFIX,
     PROTO_VERSION,
@@ -21,9 +22,11 @@ from bolis.transport import (
     SHORT_TIMEOUT_S,
     BolisNodeResetError,
     BolisPassSilentError,
+    BolisPortError,
     BolisTimeoutError,
     SerialPort,
     Transport,
+    open_serial_port,
 )
 
 # A line that a port returns when it reads nothing before its timeout.
@@ -422,6 +425,21 @@ def test_serial_port_writes_the_line_as_it_stands() -> None:
 
     assert raw.written == b'@bol {"a":1}\n'
     assert raw.flushed
+
+
+def test_open_serial_port_names_the_port_that_did_not_open() -> None:
+    """A node that is not attached draws a message that names the port."""
+    with pytest.raises(BolisPortError) as caught:
+        open_serial_port("/dev/ttyUSB-absent")
+
+    assert caught.value.port == "/dev/ttyUSB-absent"
+    assert "attached" in str(caught.value)
+
+
+def test_open_serial_port_refuses_a_url() -> None:
+    """A port that pyserial would read as a URL never opens."""
+    with pytest.raises(BolisError, match="URL"):
+        open_serial_port("rfc2217://10.0.0.5:4000")
 
 
 def test_serial_port_closes_the_raw_port() -> None:

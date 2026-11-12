@@ -160,6 +160,28 @@ class BolisPassSilentError(BolisError):
         self.frames_sent = frames_sent
 
 
+class BolisPortError(BolisError):
+    """Raised when the host cannot open the serial port of a node.
+
+    Attributes:
+        port: The serial port that did not open.
+    """
+
+    def __init__(self, port: str, reason: str) -> None:
+        """Builds the error from the port that did not open.
+
+        Args:
+            port: The serial port that did not open.
+            reason: The reason that the serial library reported.
+        """
+        super().__init__(
+            f"the host could not open the port {port!r}. Check that a node is "
+            f"attached to it. Check that the user of this machine can read it. "
+            f"The serial library reported: {reason}"
+        )
+        self.port = port
+
+
 class Port(Protocol):
     """The line reader and writer that the transport drives.
 
@@ -295,6 +317,7 @@ def open_serial_port(port: str, baud: int = BAUD) -> SerialPort:
     Raises:
         BolisError: The port names a network address rather than a local
             device.
+        BolisPortError: The port did not open.
     """
     # bolis.flasher imports esptool, which costs more to import than the rest
     # of the package. The check loads here, so a caller that holds a port
@@ -302,17 +325,20 @@ def open_serial_port(port: str, baud: int = BAUD) -> SerialPort:
     from bolis.flasher import validate_local_port  # noqa: PLC0415
 
     validate_local_port(port)
-    raw = serial.Serial(
-        port=port,
-        baudrate=baud,
-        bytesize=serial.EIGHTBITS,
-        parity=serial.PARITY_NONE,
-        stopbits=serial.STOPBITS_ONE,
-        xonxoff=False,
-        rtscts=False,
-        dsrdtr=False,
-        timeout=0.0,
-    )
+    try:
+        raw = serial.Serial(
+            port=port,
+            baudrate=baud,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            xonxoff=False,
+            rtscts=False,
+            dsrdtr=False,
+            timeout=0.0,
+        )
+    except serial.SerialException as error:
+        raise BolisPortError(port, str(error)) from error
     return SerialPort(raw)
 
 
@@ -374,13 +400,50 @@ class Transport:
         """
         if name == GO_COMMAND:
             raise ValueError(f"{name!r} reports its progress, so run_pass sends it.")
+        reply, _line = self._command_with_line(name, fields)
+        return reply
 
+    def hello_line(self) -> str:
+        """Sends one hello command and returns the line that the node wrote.
+
+        The flasher reads the line rather than the decoded reply, because it
+        proves what runs on a node by the `elf_sha256` that the line states.
+
+        Returns:
+            The reply line, with its prefix and its line ending.
+
+        Raises:
+            BolisTimeoutError: Neither attempt drew a reply.
+            BolisNodeResetError: The node started again while the command was
+                outstanding.
+            BolisNodeError: The node answered with ok set to false.
+            BolisProtocolError: A line did not meet the wire contract.
+        """
+        _reply, line = self._command_with_line(_BANNER_REPLY, None)
+        return line
+
+    def _command_with_line(
+        self, name: str, fields: Mapping[str, Any] | None
+    ) -> tuple[Reply, str]:
+        """Sends one command and returns its reply beside the line that carried it.
+
+        Args:
+            name: The command name.
+            fields: The arguments of the command, by key, or None.
+
+        Returns:
+            The reply of the node and the line that the node wrote.
+
+        Raises:
+            BolisTimeoutError: Neither attempt drew a reply.
+        """
         seq = 0
         for _attempt in range(ATTEMPTS):
             seq = self._send(name, fields)
-            reply = self._read_reply(seq, self._short_timeout_s)
-            if reply is not None:
-                return raise_for_reply(reply)
+            found = self._read_reply(seq, self._short_timeout_s)
+            if found is not None:
+                reply, line = found
+                return raise_for_reply(reply), line
         raise BolisTimeoutError(name, seq, self._short_timeout_s, ATTEMPTS)
 
     def run_pass(
@@ -413,9 +476,10 @@ class Transport:
         frames_sent: int | None = None
 
         while True:
-            reply = self._read_reply(seq, self._liveness_timeout_s)
-            if reply is None:
+            found = self._read_reply(seq, self._liveness_timeout_s)
+            if found is None:
                 raise BolisPassSilentError(seq, self._liveness_timeout_s, frames_sent)
+            reply, _line = found
             raise_for_reply(reply)
             if _pass_is_done(reply):
                 return reply
@@ -452,7 +516,7 @@ class Transport:
         self._highest_seq = seq
         return seq
 
-    def _read_reply(self, seq: int, timeout_s: float) -> Reply | None:
+    def _read_reply(self, seq: int, timeout_s: float) -> tuple[Reply, str] | None:
         """Reads until the reply of one command arrives or the timeout passes.
 
         The reader discards a line that carries no control prefix, because the
@@ -465,7 +529,9 @@ class Transport:
             timeout_s: The time to wait, in seconds.
 
         Returns:
-            The reply of the command, or None when the timeout passes.
+            The reply of the command beside the line that carried it, or None
+            when the timeout passes. The flasher reads the line, so the reader
+            returns it rather than building it again.
 
         Raises:
             BolisNodeResetError: A node wrote a hello reply that the host did
@@ -486,7 +552,32 @@ class Transport:
             if reply.reply == _BANNER_REPLY and reply.seq > self._highest_seq:
                 raise BolisNodeResetError(seq)
             if reply.seq == seq:
-                return reply
+                return reply, line
+
+
+def read_hello_line(port_name: str) -> str:
+    """Opens one port, sends one hello command, and returns the reply line.
+
+    The flasher takes a reader of this shape, so it holds no port of its own.
+    The port closes before this function returns, whether the node answered or
+    not, so a later command opens a port that no caller still holds.
+
+    Args:
+        port_name: The serial port of the node, such as /dev/ttyUSB0.
+
+    Returns:
+        The reply line, with its prefix and its line ending.
+
+    Raises:
+        BolisTimeoutError: The node answered neither attempt.
+        BolisError: The port names a network address rather than a local
+            device.
+    """
+    port = open_serial_port(port_name)
+    try:
+        return Transport(port).hello_line()
+    finally:
+        port.close()
 
 
 def _pass_is_done(reply: Reply) -> bool:
