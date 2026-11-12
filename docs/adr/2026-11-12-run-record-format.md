@@ -13,7 +13,7 @@ The accepted record [2026-10-01-number-origin-labels.md](./2026-10-01-number-ori
 
 Specification section 7 kept the host offline, stated that a record stores no MAC address, and stated that a record carries no device identifier that the user did not add.
 
-Two records at `Status: Proposed` on 2026-11-12 deferred four questions to this record. The reply timeout record left the host keeping a partial record when a run stops. The frame header encoding record left the place the host writes a record, the text form of a run ID, and the behavior of a host that cannot read that place.
+Two records drafted on 2026-11-12 deferred four questions to this record. The reply timeout record left the host keeping a partial record when a run stops. The frame header encoding record left the place the host writes a record, the text form of a run ID, and the behavior of a host that cannot read that place.
 
 If nothing was decided, the run record writer would fix the format by accident, and a corpus would hold records in a shape that no file defines.
 
@@ -58,7 +58,7 @@ The host writes into the directory that `--out` names, and into the working dire
 
 **A run that stops.** The `run` section carries `status`, which holds `complete` or `stopped`, and a `stopped` record carries `stopped_reason`. The host writes the record when a run stops, with the cells that ran. A reader tells a short run from a complete one by `status` rather than by counting cells.
 
-**A cell that a node invalidated.** Each entry of `cells` is one attempt. An entry carries `valid`, which holds false when a node reset during that attempt, and the rerun of that cell is a further entry. A record therefore holds the attempt that failed beside the attempt that replaced it. The drift band of thinkbook section 8 rests on which cells ran, so a record that drops an attempt cannot be audited.
+**A cell that a node invalidated.** Each entry of `cells` is one attempt. An entry carries `valid`, which holds false when the run invalidated that attempt, and the rerun of that cell is a further entry. A node that reset invalidates an attempt, and so does a pass that fell silent, which the reply timeout record states. A record therefore holds the attempt that failed beside the attempt that replaced it. The drift band of thinkbook section 8 rests on which cells ran, so a record that drops an attempt cannot be audited.
 
 **Validation.** The host validates every record against the schema before it writes the file. The host package takes `jsonschema` as a dependency for that check. One definition of the format then governs the writer, the tests, and any reader of the corpus.
 
