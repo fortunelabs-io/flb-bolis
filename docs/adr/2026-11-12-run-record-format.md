@@ -1,7 +1,7 @@
 # The run record format, its version, and the place it stores an origin label
 
 Date: 2026-11-12
-Status: Proposed
+Status: Accepted
 
 ## Context
 
