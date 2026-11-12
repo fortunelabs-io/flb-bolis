@@ -68,7 +68,7 @@ The draw is random rather than derived from the hardware, because specification 
 ## Consequences
 
 - This record fixes the byte order, the magic, the pass bit, the fragment split, and the fill. Each one binds every released image and every run that a corpus stores, and a change to any one of them needs a new record.
-- This record adds `run_id` to the `role` command, so the command fields record no longer states every key of that command. A reader of the control line contract reads both records.
+- This record adds `run_id` to the `role` command, so the command fields record no longer states every key of that command. The reply timeout record already amends the same record, by changing when a node writes a `go` reply. A reader of the control line contract reads the command fields record, this record, and every later record that amends it.
 - `run_id` costs no second rise of `proto`, because `proto` rises to 2 for the command fields record and that version has not shipped. A key added after version 2 ships costs version 3.
 - The header holds no version field, and its 14 bytes carry no spare byte. A run record therefore names the frame encoding of its run only through the ELF SHA-256 that the node reported.
 - A frame that fails the magic or the run ID counts as a foreign packet, which the command fields record lists as `foreign_packets`.
