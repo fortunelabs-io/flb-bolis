@@ -1,7 +1,7 @@
 # The reply timeout of each command, the progress reply of a pass, and the meaning of a timeout
 
 Date: 2026-11-12
-Status: Proposed
+Status: Accepted
 
 ## Context
 
