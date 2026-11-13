@@ -4,6 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/*
+ * The TEST_CASE macro of unity builds the name of each generated function from
+ * __LINE__, so a case at one line number collides with a case at the same line
+ * number in another test file. The collision comes from the expansion of an
+ * adopted macro, which deviation D-002 covers. It belongs to the pair of files
+ * rather than to one of them, so each test file carries this suppression. A
+ * suppression on one line would move the collision to the next matching case.
+ */
+/* cppcheck-suppress-file misra-c2012-5.9 */
+
 /**
  * @file test_bol_json.c
  * @brief Tests of the control line reader (decision record
