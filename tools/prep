@@ -28,7 +28,16 @@ readonly BOL_PY_MIN_MINOR=10
 
 readonly BOL_BENCH_DIR="components/bolis/examples/bench"
 readonly BOL_TEST_APP_DIR="components/bolis/test_apps/json"
-readonly BOL_TEST_SRC="components/bolis/test/test_bol_json.c"
+# Every reader test source, and the module that each one exercises. A new module
+# with host cases adds one pair here.
+readonly BOL_TEST_SRCS=(
+    "components/bolis/test/test_bol_json.c"
+    "components/bolis/test/test_bol_frame.c"
+)
+readonly BOL_TEST_MODULES=(
+    "components/bolis/src/bol_json.c"
+    "components/bolis/src/bol_frame.c"
+)
 
 # The host package carries its own virtual environment, because a bare python3
 # may resolve to the environment of an ESP-IDF checkout, which holds neither
@@ -155,7 +164,7 @@ stage_preflight() {
 
     # The repository layout that the later stages expect.
     local path
-    for path in "${BOL_BENCH_DIR}" "${BOL_TEST_APP_DIR}" "${BOL_TEST_SRC}"; do
+    for path in "${BOL_BENCH_DIR}" "${BOL_TEST_APP_DIR}" "${BOL_TEST_SRCS[@]}"; do
         if [ -e "${BOL_ROOT}/${path}" ]; then
             check_ok "path ${path##*/}" "${path}"
         else
@@ -392,10 +401,12 @@ stage_test_c() {
     local binary="${BOL_OUT}/reader-tests"
     local sources=(
         "${BOL_ROOT}/components/bolis/test/host_runner.c"
-        "${BOL_ROOT}/${BOL_TEST_SRC}"
-        "${BOL_ROOT}/components/bolis/src/bol_json.c"
         "${IDF_PATH}/components/unity/unity/src/unity.c"
     )
+    local relative
+    for relative in "${BOL_TEST_SRCS[@]}" "${BOL_TEST_MODULES[@]}"; do
+        sources+=("${BOL_ROOT}/${relative}")
+    done
     # unity_runner.c of ESP-IDF stays out of the link. It pulls in esp_system.h, and
     # host_runner.c supplies the registration that it would otherwise provide.
     local includes=(
@@ -445,7 +456,11 @@ stage_test_c() {
     # A run that stops partway through leaves a log of passes and no failure, so the
     # count of passes must match the count of cases in the source.
     local expected passed
-    expected="$(grep -c '^TEST_CASE(' "${BOL_ROOT}/${BOL_TEST_SRC}" || true)"
+    expected=0
+    local source
+    for source in "${BOL_TEST_SRCS[@]}"; do
+        expected=$((expected + $(grep -c '^TEST_CASE(' "${BOL_ROOT}/${source}" || true)))
+    done
     passed="$(grep -c ':PASS' "${result_log}" || true)"
     if [ "${passed}" -ne "${expected}" ]; then
         say "${passed} of ${expected} cases ran. The run stopped early."
