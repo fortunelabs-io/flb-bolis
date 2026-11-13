@@ -129,6 +129,7 @@ def receiver_stats(**overrides: object) -> dict[str, Any]:
         "messages_complete": MESSAGES_COMPLETE,
         "messages_incomplete": 13,
         "corrupt_packets": 0,
+        "dropped_packets": 0,
         "rejected_lines": 0,
         "loss_run_length_histogram": [0] * EXPECTED_BINS,
         "rssi_min_dbm": -71.0,
