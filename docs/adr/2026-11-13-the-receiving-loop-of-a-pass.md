@@ -1,7 +1,7 @@
 # The receiving loop of a pass
 
 Date: 2026-11-13
-Status: Proposed
+Status: Accepted
 
 ## Context
 
