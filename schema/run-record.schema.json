@@ -124,6 +124,17 @@
         "label": { "const": "measured" }
       }
     },
+    "loss_quantity": {
+      "description": "One loss quantity of thinkbook section 2, with the Wilson score interval at 95% that record docs/adr/2026-11-13-loss-quantities-in-a-cell.md fixes. The record holds the interval, so two readers of one record state one interval. Every value divides counters that the same entry states, so each one is derived.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratio", "wilson_interval_low", "wilson_interval_high"],
+      "properties": {
+        "ratio": { "$ref": "#/$defs/derived_number" },
+        "wilson_interval_low": { "$ref": "#/$defs/derived_number" },
+        "wilson_interval_high": { "$ref": "#/$defs/derived_number" }
+      }
+    },
     "run_id": {
       "description": "The identifier of one run, as the role command carried it and as a sender stamped it into the frame header. It names a run rather than stating a quantity of it, so it carries no origin label.",
       "type": "integer",
@@ -270,15 +281,7 @@
     "cell": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "cell_id",
-        "pass",
-        "valid",
-        "condition",
-        "read_back",
-        "sender",
-        "receiver"
-      ],
+      "required": ["cell_id", "pass", "valid", "condition", "read_back"],
       "properties": {
         "cell_id": {
           "description": "The cell that the control line and the frame header both carry. The frame header holds it in fifteen bits.",
@@ -316,14 +319,100 @@
           }
         },
         "sender": { "$ref": "#/$defs/sender_counters" },
-        "receiver": { "$ref": "#/$defs/receiver_counters" }
+        "receiver": { "$ref": "#/$defs/receiver_counters" },
+        "first_attempt_loss": { "$ref": "#/$defs/loss_quantity" },
+        "post_retry_loss": { "$ref": "#/$defs/loss_quantity" },
+        "message_loss": { "$ref": "#/$defs/loss_quantity" }
       },
-      "if": {
-        "properties": { "valid": { "const": false } },
-        "required": ["valid"]
-      },
-      "then": { "required": ["invalid_reason"] },
-      "else": { "not": { "required": ["invalid_reason"] } }
+      "allOf": [
+        {
+          "$comment": "An attempt that the run invalidated names its cause, states no loss quantity, and states the counters of a node only when that node answered its stats command.",
+          "if": {
+            "properties": { "valid": { "const": false } },
+            "required": ["valid"]
+          },
+          "then": {
+            "required": ["invalid_reason"],
+            "not": {
+              "anyOf": [
+                { "required": ["first_attempt_loss"] },
+                { "required": ["post_retry_loss"] },
+                { "required": ["message_loss"] }
+              ]
+            }
+          },
+          "else": {
+            "required": ["sender", "receiver"],
+            "not": { "required": ["invalid_reason"] }
+          }
+        },
+        {
+          "$comment": "A broadcast pass allows no retry, so post-retry loss has no meaning on it.",
+          "if": {
+            "properties": { "pass": { "const": "broadcast" } },
+            "required": ["pass"]
+          },
+          "then": { "not": { "required": ["post_retry_loss"] } },
+          "else": { "not": { "required": ["first_attempt_loss"] } }
+        },
+        {
+          "$comment": "A valid broadcast pass that sent a frame states its first-attempt loss. A pass that sent none states no share, because the denominator is zero.",
+          "if": {
+            "properties": {
+              "valid": { "const": true },
+              "pass": { "const": "broadcast" },
+              "sender": { "$ref": "#/$defs/sent_a_packet" }
+            },
+            "required": ["valid", "pass", "sender"]
+          },
+          "then": { "required": ["first_attempt_loss"] }
+        },
+        {
+          "$comment": "A valid unicast pass that sent a frame states its post-retry loss.",
+          "if": {
+            "properties": {
+              "valid": { "const": true },
+              "pass": { "const": "unicast" },
+              "sender": { "$ref": "#/$defs/sent_a_packet" }
+            },
+            "required": ["valid", "pass", "sender"]
+          },
+          "then": { "required": ["post_retry_loss"] }
+        },
+        {
+          "$comment": "A valid pass of either mode that sent a message states its message loss.",
+          "if": {
+            "properties": {
+              "valid": { "const": true },
+              "sender": { "$ref": "#/$defs/sent_a_message" }
+            },
+            "required": ["valid", "sender"]
+          },
+          "then": { "required": ["message_loss"] }
+        }
+      ]
+    },
+    "sent_a_packet": {
+      "description": "Matches a sender that sent at least one packet, so a share of them exists.",
+      "type": "object",
+      "required": ["packets_sent"],
+      "properties": {
+        "packets_sent": {
+          "required": ["value"],
+          "properties": { "value": { "minimum": 1 } }
+        }
+      }
+    },
+    "sent_a_message": {
+      "description": "Matches a sender that sent at least one message, so a share of them exists.",
+      "type": "object",
+      "required": ["messages_sent"],
+      "properties": {
+        "messages_sent": {
+          "required": ["value"],
+          "properties": { "value": { "minimum": 1 } }
+        }
+      }
     },
     "sender_counters": {
       "description": "The counters that a sender reports for one pass.",

@@ -47,6 +47,27 @@ def histogram() -> dict[str, Any]:
     return {"value": [0] * EXPECTED_BINS, "label": "measured"}
 
 
+def derived(value: float) -> dict[str, Any]:
+    """Builds a number computed only from measured values."""
+    return {"value": value, "label": "derived"}
+
+
+def loss(ratio: float = 0.0065) -> dict[str, Any]:
+    """Builds one loss quantity with its Wilson interval.
+
+    Args:
+        ratio: The share of the denominator that was lost.
+
+    Returns:
+        The ratio and the two bounds of its interval.
+    """
+    return {
+        "ratio": derived(ratio),
+        "wilson_interval_low": derived(ratio / 2),
+        "wilson_interval_high": derived(ratio * 2),
+    }
+
+
 def sender_counters() -> dict[str, Any]:
     """Builds the counters that a sender reports for one pass."""
     return {
@@ -146,6 +167,8 @@ def record() -> dict[str, Any]:
                 },
                 "sender": sender_counters(),
                 "receiver": receiver_counters(),
+                "first_attempt_loss": loss(),
+                "message_loss": loss(),
             }
         ],
     }
@@ -272,11 +295,14 @@ def test_an_invalid_cell_states_why(
 ) -> None:
     """An attempt that the run invalidated names the cause."""
     document = record()
-    document["cells"][0]["valid"] = False
+    cell = document["cells"][0]
+    cell["valid"] = False
     with pytest.raises(jsonschema.ValidationError):
         validator.validate(document)
 
-    document["cells"][0]["invalid_reason"] = "the node started again during the pass."
+    cell["invalid_reason"] = "the node started again during the pass."
+    del cell["first_attempt_loss"]
+    del cell["message_loss"]
     validator.validate(document)
 
 
@@ -350,3 +376,131 @@ def test_a_record_of_a_stopped_run_keeps_the_cells_that_ran(
     document["run"]["stopped_reason"] = "the sender fell silent during a pass."
     document["cells"] = []
     validator.validate(document)
+
+
+def test_a_broadcast_pass_states_its_first_attempt_loss(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """A valid broadcast pass that sent frames states the share that failed."""
+    document = record()
+    del document["cells"][0]["first_attempt_loss"]
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(document)
+
+
+def test_a_pass_states_its_message_loss(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """Both modes state the share of messages that did not arrive whole."""
+    document = record()
+    del document["cells"][0]["message_loss"]
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(document)
+
+
+def test_a_broadcast_pass_states_no_post_retry_loss(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """A broadcast pass allows no retry, so the quantity has no meaning on it."""
+    document = record()
+    document["cells"][0]["post_retry_loss"] = loss()
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(document)
+
+
+def test_a_unicast_pass_states_post_retry_loss_and_no_first_attempt_loss(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """The observable of a unicast pass is the send callback failure."""
+    document = record()
+    cell = document["cells"][0]
+    # The key names a broadcast or a unicast pass (thinkbook section 7). S105
+    # reads the name as a credential, and the accepted records fix the key.
+    cell["pass"] = "unicast"  # noqa: S105
+    del cell["first_attempt_loss"]
+    cell["post_retry_loss"] = loss()
+    validator.validate(document)
+
+    cell["first_attempt_loss"] = loss()
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(document)
+
+
+def test_a_pass_that_sent_nothing_states_no_loss(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """A share needs a denominator, and a pass that sent nothing has none."""
+    document = record()
+    cell = document["cells"][0]
+    cell["sender"]["packets_sent"] = measured(0)
+    cell["sender"]["messages_sent"] = measured(0)
+    del cell["first_attempt_loss"]
+    del cell["message_loss"]
+    validator.validate(document)
+
+
+def test_an_invalidated_attempt_states_no_loss(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """A conclusion needs counters that no stats command completed."""
+    document = record()
+    cell = document["cells"][0]
+    cell["valid"] = False
+    cell["invalid_reason"] = "the node started again during the pass."
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(document)
+
+
+def test_an_invalidated_attempt_needs_no_counters(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """A pass that a reset ended answered no stats command."""
+    document = record()
+    document["cells"][0] = {
+        "cell_id": 0,
+        "pass": "broadcast",
+        "valid": False,
+        "invalid_reason": "the pass fell silent after 700 frames.",
+        "condition": {
+            "channel": configured(1),
+            "power_set_value": configured(44),
+            "payload_bytes": configured(128),
+            "frames": configured(2000),
+        },
+        "read_back": {
+            "channel": measured(1),
+            "payload_bytes": measured(128),
+            "power_set_value_read_back": measured(44),
+        },
+    }
+    validator.validate(document)
+
+
+def test_a_valid_attempt_states_the_counters_of_both_nodes(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """A pass that ran reports from both nodes."""
+    document = record()
+    del document["cells"][0]["receiver"]
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(document)
+
+
+def test_a_loss_quantity_carries_the_derived_label(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """A value computed from measured values is derived, not measured."""
+    document = record()
+    document["cells"][0]["first_attempt_loss"]["ratio"] = measured(0.0065)
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(document)
+
+
+def test_a_loss_quantity_states_both_interval_bounds(
+    validator: jsonschema.protocols.Validator,
+) -> None:
+    """A ratio without its interval leaves a reader to compute one."""
+    document = record()
+    del document["cells"][0]["first_attempt_loss"]["wilson_interval_high"]
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(document)
