@@ -19,6 +19,7 @@ classifiers = [
 dependencies = [
     "esptool>=5",
     "pyserial>=3.5",
+    "jsonschema>=4",
 ]
 
 [project.optional-dependencies]

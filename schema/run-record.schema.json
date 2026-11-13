@@ -1,0 +1,399 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fortunelabs-io/flb-bolis/schema/run-record.schema.json",
+  "title": "Bolis run record",
+  "description": "One record per run. Thinkbook section 9 names the six sections. Record docs/adr/2026-11-12-run-record-format.md fixes the format, the version key, and the place an origin label sits beside a number. Record docs/adr/2026-11-11-control-line-command-fields.md names the counters of each pass.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_version",
+    "run",
+    "firmware",
+    "nodes",
+    "setup",
+    "declared",
+    "cells"
+  ],
+  "properties": {
+    "record_version": {
+      "description": "The version of this format. It states the shape of the file rather than a quantity of the run, so it carries no origin label.",
+      "type": "integer",
+      "const": 1
+    },
+    "run": { "$ref": "#/$defs/run" },
+    "firmware": { "$ref": "#/$defs/firmware" },
+    "nodes": { "$ref": "#/$defs/nodes" },
+    "setup": { "$ref": "#/$defs/setup" },
+    "declared": { "$ref": "#/$defs/declared" },
+    "cells": {
+      "description": "One entry per attempt of a cell and pass. A rerun of a cell is a further entry, so a reader filters on valid before it reads a counter.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/cell" }
+    }
+  },
+  "$defs": {
+    "label": {
+      "description": "The origin of one number (record docs/adr/2026-10-01-number-origin-labels.md).",
+      "enum": ["measured", "configured", "derived", "declared"]
+    },
+    "measured_count": {
+      "description": "A counter that a node read during the run.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": "integer", "minimum": 0 },
+        "label": { "const": "measured" }
+      }
+    },
+    "measured_number": {
+      "description": "A value that a node read during the run, which may be negative or fractional, such as an RSSI in dBm.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": "number" },
+        "label": { "const": "measured" }
+      }
+    },
+    "configured_integer": {
+      "description": "A whole value that Bolis set before or during the run.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": "integer" },
+        "label": { "const": "configured" }
+      }
+    },
+    "configured_number": {
+      "description": "A value that Bolis set, which may be fractional.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": "number" },
+        "label": { "const": "configured" }
+      }
+    },
+    "derived_number": {
+      "description": "A value computed only from measured values.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": "number" },
+        "label": { "const": "derived" }
+      }
+    },
+    "declared_text": {
+      "description": "Text that the user typed and that Bolis did not check.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": "string" },
+        "label": { "const": "declared" }
+      }
+    },
+    "configured_integer_list": {
+      "description": "A list of whole values that Bolis set. Every entry shares one origin, so one label covers the list.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": {
+          "type": "array",
+          "items": { "type": "integer" }
+        },
+        "label": { "const": "configured" }
+      }
+    },
+    "measured_histogram": {
+      "description": "Sixteen bin counts, from the lowest bin to the highest. The last bin counts every value at or above its lower edge. Every bin shares one origin, so one label covers the histogram.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label"],
+      "properties": {
+        "value": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": { "type": "integer", "minimum": 0 }
+        },
+        "label": { "const": "measured" }
+      }
+    },
+    "run_id": {
+      "description": "The identifier of one run, as the role command carried it and as a sender stamped it into the frame header. It names a run rather than stating a quantity of it, so it carries no origin label.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "timestamp": {
+      "description": "One instant in UTC, in RFC 3339 form with a Z suffix. A timestamp states no quantity of the link, so it carries no origin label.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "sha256": {
+      "description": "Sixty-four lowercase hexadecimal characters.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "started_at",
+        "ended_at",
+        "bolis_version",
+        "mode",
+        "plan",
+        "seed",
+        "verification_pair_run_id",
+        "status"
+      ],
+      "properties": {
+        "run_id": { "$ref": "#/$defs/run_id" },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "ended_at": { "$ref": "#/$defs/timestamp" },
+        "bolis_version": { "type": "string" },
+        "mode": { "enum": ["broadcast", "unicast"] },
+        "plan": { "enum": ["default", "grid"] },
+        "seed": { "$ref": "#/$defs/configured_integer" },
+        "verification_pair_run_id": {
+          "description": "The run ID of the other run of a verification pair (record docs/adr/2026-10-01-reproducibility-verification.md), or null when this run belongs to no pair.",
+          "oneOf": [{ "$ref": "#/$defs/run_id" }, { "type": "null" }]
+        },
+        "status": {
+          "description": "A run that reached the end of its plan is complete. A run that stopped early is stopped, and it states why.",
+          "enum": ["complete", "stopped"]
+        },
+        "stopped_reason": { "type": "string" }
+      },
+      "if": {
+        "properties": { "status": { "const": "stopped" } },
+        "required": ["status"]
+      },
+      "then": { "required": ["stopped_reason"] },
+      "else": { "not": { "required": ["stopped_reason"] } }
+    },
+    "firmware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "firmware_path",
+        "elf_sha256",
+        "idf_version",
+        "espnow_version",
+        "payload_limit_bytes"
+      ],
+      "properties": {
+        "firmware_path": { "enum": ["prebuilt", "source"] },
+        "elf_sha256": { "$ref": "#/$defs/sha256" },
+        "idf_version": { "type": "string" },
+        "espnow_version": { "$ref": "#/$defs/measured_count" },
+        "payload_limit_bytes": { "$ref": "#/$defs/measured_count" }
+      }
+    },
+    "nodes": {
+      "description": "One entry per node. The record stores no MAC address (specification section 7), and no property here holds one.",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "chip", "chip_revision"],
+        "properties": {
+          "role": { "enum": ["sender", "receiver"] },
+          "chip": { "type": "string" },
+          "chip_revision": { "$ref": "#/$defs/measured_count" }
+        }
+      }
+    },
+    "setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "country_code",
+        "phy_rate_mbps",
+        "power_save",
+        "bluetooth_controller",
+        "payload_list_bytes",
+        "baseline_source",
+        "baseline"
+      ],
+      "properties": {
+        "country_code": { "type": "string" },
+        "phy_rate_mbps": { "$ref": "#/$defs/configured_number" },
+        "power_save": { "type": "string" },
+        "bluetooth_controller": { "enum": ["enabled", "disabled"] },
+        "payload_list_bytes": { "$ref": "#/$defs/configured_integer_list" },
+        "baseline_source": {
+          "description": "Whether the user configured the baseline or the fallback applied (thinkbook section 8).",
+          "enum": ["user", "fallback"]
+        },
+        "baseline": {
+          "description": "The condition that the drift band repeats (thinkbook section 8).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["channel", "power_set_value", "payload_bytes"],
+          "properties": {
+            "channel": { "$ref": "#/$defs/configured_integer" },
+            "power_set_value": { "$ref": "#/$defs/configured_integer" },
+            "payload_bytes": { "$ref": "#/$defs/configured_integer" }
+          }
+        }
+      }
+    },
+    "declared": {
+      "description": "What the user typed about the bench. Bolis checks none of it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "distance",
+        "orientation",
+        "antenna",
+        "enclosure",
+        "surroundings"
+      ],
+      "properties": {
+        "distance": { "$ref": "#/$defs/declared_text" },
+        "orientation": { "$ref": "#/$defs/declared_text" },
+        "antenna": { "$ref": "#/$defs/declared_text" },
+        "enclosure": { "$ref": "#/$defs/declared_text" },
+        "surroundings": { "$ref": "#/$defs/declared_text" }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cell_id",
+        "pass",
+        "valid",
+        "condition",
+        "read_back",
+        "sender",
+        "receiver"
+      ],
+      "properties": {
+        "cell_id": {
+          "description": "The cell that the control line and the frame header both carry. The frame header holds it in fifteen bits.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32767
+        },
+        "pass": { "enum": ["broadcast", "unicast"] },
+        "valid": {
+          "description": "False when the run invalidated this attempt, such as a node that reset or a pass that fell silent. The rerun of the cell is a further entry.",
+          "type": "boolean"
+        },
+        "invalid_reason": { "type": "string" },
+        "condition": {
+          "description": "The condition that the host asked for in the cell command.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["channel", "power_set_value", "payload_bytes", "frames"],
+          "properties": {
+            "channel": { "$ref": "#/$defs/configured_integer" },
+            "power_set_value": { "$ref": "#/$defs/configured_integer" },
+            "payload_bytes": { "$ref": "#/$defs/configured_integer" },
+            "frames": { "$ref": "#/$defs/configured_integer" }
+          }
+        },
+        "read_back": {
+          "description": "The values that a node reported in its cell reply. The transmit power states what the radio reports rather than what the host asked for.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["channel", "payload_bytes", "power_set_value_read_back"],
+          "properties": {
+            "channel": { "$ref": "#/$defs/measured_count" },
+            "payload_bytes": { "$ref": "#/$defs/measured_count" },
+            "power_set_value_read_back": { "$ref": "#/$defs/measured_count" }
+          }
+        },
+        "sender": { "$ref": "#/$defs/sender_counters" },
+        "receiver": { "$ref": "#/$defs/receiver_counters" }
+      },
+      "if": {
+        "properties": { "valid": { "const": false } },
+        "required": ["valid"]
+      },
+      "then": { "required": ["invalid_reason"] },
+      "else": { "not": { "required": ["invalid_reason"] } }
+    },
+    "sender_counters": {
+      "description": "The counters that a sender reports for one pass.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frames_sent",
+        "messages_sent",
+        "packets_sent",
+        "send_errors",
+        "callback_ok",
+        "callback_failed",
+        "no_mem_events",
+        "send_to_callback_us_histogram",
+        "rejected_lines"
+      ],
+      "properties": {
+        "frames_sent": { "$ref": "#/$defs/measured_count" },
+        "messages_sent": { "$ref": "#/$defs/measured_count" },
+        "packets_sent": { "$ref": "#/$defs/measured_count" },
+        "send_errors": {
+          "description": "One entry per ESP-IDF error code that a send returned.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["err", "count"],
+            "properties": {
+              "err": { "type": "string" },
+              "count": { "$ref": "#/$defs/measured_count" }
+            }
+          }
+        },
+        "callback_ok": { "$ref": "#/$defs/measured_count" },
+        "callback_failed": { "$ref": "#/$defs/measured_count" },
+        "no_mem_events": { "$ref": "#/$defs/measured_count" },
+        "send_to_callback_us_histogram": { "$ref": "#/$defs/measured_histogram" },
+        "rejected_lines": { "$ref": "#/$defs/measured_count" }
+      }
+    },
+    "receiver_counters": {
+      "description": "The counters that a receiver reports for one pass.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "packets_received",
+        "duplicates",
+        "foreign_packets",
+        "messages_complete",
+        "messages_incomplete",
+        "corrupt_packets",
+        "loss_run_length_histogram",
+        "rssi_min_dbm",
+        "rssi_mean_dbm",
+        "rssi_max_dbm",
+        "rejected_lines"
+      ],
+      "properties": {
+        "packets_received": { "$ref": "#/$defs/measured_count" },
+        "duplicates": { "$ref": "#/$defs/measured_count" },
+        "foreign_packets": { "$ref": "#/$defs/measured_count" },
+        "messages_complete": { "$ref": "#/$defs/measured_count" },
+        "messages_incomplete": { "$ref": "#/$defs/measured_count" },
+        "corrupt_packets": { "$ref": "#/$defs/measured_count" },
+        "loss_run_length_histogram": { "$ref": "#/$defs/measured_histogram" },
+        "rssi_min_dbm": { "$ref": "#/$defs/measured_number" },
+        "rssi_mean_dbm": { "$ref": "#/$defs/measured_number" },
+        "rssi_max_dbm": { "$ref": "#/$defs/measured_number" },
+        "rejected_lines": { "$ref": "#/$defs/measured_count" }
+      }
+    }
+  }
+}
