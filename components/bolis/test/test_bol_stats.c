@@ -130,12 +130,15 @@ TEST_CASE("one code takes one slot however often it arrives", "[bol_stats]")
 
 TEST_CASE("a table that is full keeps the total of the failures", "[bol_stats]")
 {
+    /* The sum takes a name, so no assert casts a composite expression
+     * (MISRA Rule 10.8). */
+    const uint32_t failures = BOL_SEND_ERROR_SLOTS + 3U;
     bol_sender_counters_t counters;
     uint32_t index = 0U;
     uint32_t total = 0U;
 
     bol_stats_reset(&counters);
-    while (index < (BOL_SEND_ERROR_SLOTS + 3U)) {
+    while (index < failures) {
         /* The sum is a composite expression, so it takes a name before the
          * cast to the error type (MISRA Rule 10.8). */
         const int code = 0x100 + (int)index;
@@ -150,7 +153,7 @@ TEST_CASE("a table that is full keeps the total of the failures", "[bol_stats]")
         total += counters.send_errors[index].count;
         index++;
     }
-    TEST_ASSERT_EQUAL_UINT32(BOL_SEND_ERROR_SLOTS + 3U, total);
+    TEST_ASSERT_EQUAL_UINT32(failures, total);
 }
 
 TEST_CASE("a payload at or below the limit takes one packet", "[bol_stats]")
