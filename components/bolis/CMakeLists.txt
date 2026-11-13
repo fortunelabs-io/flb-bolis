@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "src/bol_radio.c" "src/bol_console.c" "src/bol_json.c"
+    SRCS "src/bol_radio.c" "src/bol_console.c" "src/bol_json.c" "src/bol_frame.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "priv_include"
     PRIV_REQUIRES esp_wifi esp_netif esp_event nvs_flash esp_driver_uart esp_app_format vfs
