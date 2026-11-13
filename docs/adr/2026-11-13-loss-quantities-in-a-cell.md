@@ -1,7 +1,7 @@
 # The loss quantities that a cell entry states
 
 Date: 2026-11-13
-Status: Proposed
+Status: Accepted
 
 ## Context
 
