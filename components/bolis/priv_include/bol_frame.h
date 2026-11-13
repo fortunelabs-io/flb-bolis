@@ -45,9 +45,6 @@ extern "C" {
 /** @brief The widest cell that the low fifteen bits of the header carry. */
 #define BOL_FRAME_CELL_ID_MAX 32767U
 
-/** @brief The widest fragment index or count that one byte carries. */
-#define BOL_FRAME_FRAGMENT_MAX 255U
-
 /**
  * @brief The pass that the top bit of the cell field names.
  *
