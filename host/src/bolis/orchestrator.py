@@ -64,7 +64,10 @@ SENDER_COUNTERS: Final = (
     "rejected_lines",
 )
 
-# The counters that a receiver states in its stats reply.
+# The counters that a receiver states in its stats reply. dropped_packets
+# states the packets that the node itself did not process, which record
+# docs/adr/2026-11-13-the-receiving-loop-of-a-pass.md separates from a frame
+# that the link lost.
 RECEIVER_COUNTERS: Final = (
     "packets_received",
     "duplicates",
@@ -72,6 +75,7 @@ RECEIVER_COUNTERS: Final = (
     "messages_complete",
     "messages_incomplete",
     "corrupt_packets",
+    "dropped_packets",
     "rejected_lines",
 )
 

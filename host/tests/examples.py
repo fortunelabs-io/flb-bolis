@@ -79,6 +79,7 @@ def receiver_counters() -> dict[str, Any]:
         "messages_complete": measured(1987),
         "messages_incomplete": measured(0),
         "corrupt_packets": measured(0),
+        "dropped_packets": measured(0),
         "loss_run_length_histogram": histogram(),
         "rssi_min_dbm": measured(-71.0),
         "rssi_mean_dbm": measured(-63.5),
