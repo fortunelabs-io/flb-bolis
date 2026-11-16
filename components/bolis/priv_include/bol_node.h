@@ -76,9 +76,9 @@ typedef struct {
     uint32_t run_id;                 /*!< The run that the role command carried. */
     uint8_t peer_mac[BOL_MAC_BYTES]; /*!< The address of the other node. */
     bool has_peer;                   /*!< Whether peer_mac holds an address. */
-    bool has_cell;                   /*!< Whether condition holds a condition. */
-    bol_node_cell_t condition;            /*!< The condition of the current pass. */
-    uint32_t packets_per_message;    /*!< The packets of one message of that condition. */
+    bool has_cell;                   /*!< Whether the node holds a condition. */
+    bol_node_cell_t condition;       /*!< The condition of the current pass. */
+    uint32_t packets_per_message;    /*!< The packets of one message of that cell. */
 } bol_node_t;
 
 /**
@@ -183,7 +183,7 @@ esp_err_t bol_node_set_role(bol_node_t *node, bol_role_t role, uint32_t run_id,
  * limit, which the arm of a receiver and the budget of a sender both need.
  *
  * @param[in,out] node                 The node that takes the condition.
- * @param[in]     condition                 The condition that the command stated.
+ * @param[in]     condition            The condition that the command stated.
  * @param[in]     payload_limit_bytes  The packet payload limit L, 1 or more.
  *
  * @retval ESP_OK                 The node holds the condition.
