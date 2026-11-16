@@ -40,9 +40,11 @@ extern "C" {
 #define BOL_MAC_TEXT_BYTES 18U
 
 /** @brief The bytes of a role name as text, with its null terminator. */
+// cppcheck-suppress misra-c2012-2.5 ; bol_console.c uses this macro, in a different translation unit
 #define BOL_ROLE_TEXT_BYTES 9U
 
 /** @brief The bytes of a pass name as text, with its null terminator. */
+// cppcheck-suppress misra-c2012-2.5 ; bol_console.c uses this macro, in a different translation unit
 #define BOL_PASS_TEXT_BYTES 10U
 
 /** @brief The role that a node took, or none before its first role command. */

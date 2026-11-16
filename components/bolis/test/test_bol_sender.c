@@ -111,6 +111,7 @@ static void bol_test_wait_ms(void *context, uint32_t milliseconds)
     ctx->now_ms += milliseconds;
 }
 
+// cppcheck-suppress constParameterCallback ; bol_sender_port_t.now_ms takes void *context for every callback
 static uint32_t bol_test_now_ms(void *context)
 {
     // cppcheck-suppress misra-c2012-11.5 ; the port passes its context as void *
@@ -387,6 +388,7 @@ TEST_CASE("a packet that every attempt fails counts under its code", "[bol_sende
 
     TEST_ASSERT_EQUAL_UINT32(BOL_SENDER_ATTEMPTS, ctx.send_calls);
     TEST_ASSERT_EQUAL_UINT32(BOL_SENDER_ATTEMPTS, counters.no_mem_events);
+    // cppcheck-suppress misra-c2012-10.8 ; D-002
     TEST_ASSERT_EQUAL_UINT32(BOL_SENDER_ATTEMPTS - 1U, ctx.wait_calls);
     TEST_ASSERT_EQUAL_UINT32(0U, counters.packets_sent);
     TEST_ASSERT_EQUAL_UINT32(0U, counters.messages_sent);

@@ -127,7 +127,6 @@ esp_err_t bol_node_parse_mac(const char *text, uint8_t *out_mac)
 {
     esp_err_t ret = ESP_OK;
     uint8_t mac[BOL_MAC_BYTES];
-    size_t index = 0U;
 
     // The reader writes the address only after every byte of the text passes.
     // The return value of memset is the destination, which the caller already holds.
@@ -138,6 +137,8 @@ esp_err_t bol_node_parse_mac(const char *text, uint8_t *out_mac)
     } else if (strlen(text) != (BOL_MAC_TEXT_BYTES - 1U)) {
         ret = ESP_ERR_INVALID_ARG;
     } else {
+        size_t index = 0U;
+
         while ((ret == ESP_OK) && (index < BOL_MAC_BYTES)) {
             const size_t offset = index * 3U;
             uint8_t high = 0U;

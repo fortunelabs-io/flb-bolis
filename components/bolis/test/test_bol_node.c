@@ -218,7 +218,7 @@ TEST_CASE("a condition command before a role command names an error", "[bol_node
 TEST_CASE("a condition outside its range names an error", "[bol_node]")
 {
     bol_node_t node;
-    bol_node_cell_t condition = bol_test_cell();
+    bol_node_cell_t condition;
 
     bol_node_reset(&node);
     TEST_ASSERT_EQUAL_INT(ESP_OK, bol_node_set_role(&node, BOL_ROLE_RECEIVER, 7U, NULL));
