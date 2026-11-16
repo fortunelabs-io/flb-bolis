@@ -36,7 +36,9 @@ This amends the accepted record [2026-10-01-control-line-wire-format.md](./2026-
 
 The host takes `setup.country_code` of the run record from that field, and the value keeps the `[configured]` label, because the component set it.
 
-The host checks the plan against the country code of the node rather than against a constant. A run whose plan names a channel outside the range that the node reports stops before the first cell, and the message names the channel and the code. That check runs after the host reads the `hello` reply, because the code reaches the host only then. The check that runs while the host reads the command line keeps the range of the default code, so a plain mistake still fails early.
+The host holds no table of the channels that a country code allows, and it builds none. Such a table is data that no source of this repository states. The channel list of a plan follows the range that the default code `01` allows, and the check that the host runs while it reads the command line keeps that range, so a channel of 12 fails before a port opens.
+
+A node refuses a channel that its own code does not allow, because `esp_wifi_set_channel` returns a code for that channel. The `cell` command answers with that code, and the run stops at that cell and names it. The authority on a channel is therefore the driver of the node rather than a table in the host.
 
 ```
 @bol {"proto":2,"reply":"hello","seq":1,"ok":true,"chip":"esp32",
@@ -52,9 +54,10 @@ The host checks the plan against the country code of the node rather than agains
 - This record amends the field set of the wire format record. A reader of the control line contract reads that record and every record that amends it.
 - The widest `hello` reply measures 365 bytes against the 512-byte limit, so the reply keeps 147 bytes.
 - `setup.country_code` states the code that the radio holds, so no record states a country that its bench did not use.
-- A pair of nodes built with different country codes answers two different codes. The host stops such a pair, because one run states one setup.
-- The channel check of a run rests on the node rather than on the default code, so a user who builds another country code gets the range of that code.
+- A pair of nodes built with different country codes carries two different ELF hashes, because the code reaches a node through Kconfig. `require_same_firmware` already stops such a pair, so this record adds no check of its own.
 - The host keeps the range of the default code for the check it runs while it reads the command line, so a channel of 12 still fails before a port opens.
+- A channel that a node refuses stops the run at that cell, with the code that the driver returned. The host states no reason of its own for that refusal, because it holds no table of the channels of a code.
+- A sweep on a node whose code allows fewer channels than the default code stops at the first cell outside that range. The record of that run holds the cells that ran, which the run record format already allows through its stopped reason.
 - The power save mode stays a value that the host states, because the coding standard fixes it for both nodes and no build changes it.
 - `esp_wifi_get_country_code` runs after `esp_wifi_start`, so the console starts after the radio, which `bol_radio_up` already does.
 - Watch the first run on a node of a country code other than the default. The channel list of the sweep follows the code, so the cell count of that run differs from the cell count of a default run.
