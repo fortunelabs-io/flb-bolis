@@ -169,6 +169,57 @@ const uint8_t *bol_radio_broadcast_address(void)
     return s_broadcast_mac;
 }
 
+esp_err_t bol_radio_country_code(char *out_text, size_t out_capacity_bytes)
+{
+    esp_err_t ret = ESP_OK;
+    char code[BOL_COUNTRY_TEXT_BYTES];
+
+    // The driver writes the code only on success, so the clear holds the buffer
+    // defined on every path.
+    // The return value of memset is the destination, which this function already holds.
+    (void)memset(code, 0, sizeof(code));
+
+    if (out_text == NULL) {
+        ret = ESP_ERR_INVALID_ARG;
+    } else if (out_capacity_bytes < BOL_COUNTRY_TEXT_BYTES) {
+        ret = ESP_ERR_INVALID_SIZE;
+    } else {
+        ret = esp_wifi_get_country_code(code);
+    }
+
+    if (ret == ESP_OK) {
+        const size_t length_bytes = strnlen(code, sizeof(code));
+        size_t index = 0U;
+
+        if (length_bytes == 0U) {
+            ret = ESP_ERR_INVALID_STATE;
+        }
+
+        while ((ret == ESP_OK) && (index < length_bytes)) {
+            const char value = code[index];
+            const bool is_digit = (value >= '0') && (value <= '9');
+            const bool is_lower = (value >= 'a') && (value <= 'z');
+            const bool is_upper = (value >= 'A') && (value <= 'Z');
+
+            if (!is_digit && !is_lower && !is_upper) {
+                // The code reaches a reply inside a JSON string, so a byte that
+                // is neither a letter nor a digit cannot go on the line.
+                ret = ESP_ERR_INVALID_STATE;
+            } else {
+                index++;
+            }
+        }
+
+        if (ret == ESP_OK) {
+            // The length stays inside both objects, so rules 21.17 and 21.18 hold.
+            (void)memcpy(out_text, code, length_bytes);
+            out_text[length_bytes] = '\0';
+        }
+    }
+
+    return ret;
+}
+
 esp_err_t bol_radio_station_mac(uint8_t *out_mac)
 {
     esp_err_t ret = ESP_OK;

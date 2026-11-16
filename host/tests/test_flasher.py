@@ -148,6 +148,7 @@ def _hello_line(elf_sha256: str = ELF_SHA256, **overrides: object) -> str:
         "firmware_path": "prebuilt",
         "elf_sha256": elf_sha256,
         "bluetooth_controller": "disabled",
+        "country_code": "01",
     }
     fields.update(overrides)
     text = json.dumps(fields, separators=(",", ":"), ensure_ascii=True)

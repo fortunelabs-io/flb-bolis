@@ -200,6 +200,7 @@ def hello(role_chip: str = "esp32") -> Hello:
         firmware_path="prebuilt",
         elf_sha256="ab" * 32,
         bluetooth_controller="disabled",
+        country_code="01",
     )
 
 

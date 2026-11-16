@@ -19,6 +19,7 @@
 #ifndef BOL_RADIO_H
 #define BOL_RADIO_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -27,12 +28,43 @@
 extern "C" {
 #endif
 
+/** @brief The bytes of a country code as text, with its null terminator. */
+#define BOL_COUNTRY_TEXT_BYTES 4U
+
 /**
  * @brief Returns the address that a broadcast pass sends to.
  *
  * @return The six bytes of the broadcast address.
  */
 const uint8_t *bol_radio_broadcast_address(void);
+
+/**
+ * @brief Reads the country code that the radio holds.
+ *
+ * The hello reply states this code, and the run record takes it from there
+ * (decision record 2026-11-16-the-country-code-in-the-hello-reply.md). The
+ * reader takes the code from the driver rather than from the setting that
+ * configured it, so the reply states what applied.
+ *
+ * The code reaches a reply inside a JSON string, so this function accepts a
+ * code of letters and digits only and rejects anything else.
+ *
+ * @pre WiFi has started.
+ *
+ * @param[out] out_text            The buffer that receives the code and its
+ *                                 null terminator.
+ * @param[in]  out_capacity_bytes  The size of out_text,
+ *                                 BOL_COUNTRY_TEXT_BYTES or more.
+ *
+ * @retval ESP_OK                 out_text holds the code.
+ * @retval ESP_ERR_INVALID_ARG    The pointer is NULL.
+ * @retval ESP_ERR_INVALID_SIZE   The buffer is shorter than
+ *                                BOL_COUNTRY_TEXT_BYTES.
+ * @retval ESP_ERR_INVALID_STATE  The driver reported a code that holds a byte
+ *                                which is neither a letter nor a digit.
+ * @retval Other                  The code that the failing ESP-IDF call returned.
+ */
+esp_err_t bol_radio_country_code(char *out_text, size_t out_capacity_bytes);
 
 /**
  * @brief Reads the address of the station interface of this node.
