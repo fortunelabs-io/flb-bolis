@@ -129,12 +129,14 @@ static bol_node_t s_node;
 /** @brief The counters of the last pass that this node sent. */
 static bol_sender_counters_t s_sender_counters;
 
+// cppcheck-suppress misra-c2012-8.9 ; a frame of this size overruns the task stack
 /** @brief The frame that the sending loop fills and sends. */
 static uint8_t s_frame[ESP_NOW_MAX_DATA_LEN_V2];
 
 /** @brief Signals the control task that the callback of a send ran. */
 static SemaphoreHandle_t s_send_done = NULL;
 
+// cppcheck-suppress misra-c2012-8.9 ; the semaphore outlives the function that creates it
 /** @brief The storage of that semaphore, which holds no heap (MISRA Dir 4.12). */
 static StaticSemaphore_t s_send_done_buffer;
 
@@ -634,9 +636,15 @@ static void bol_port_wait_ms(void *context, uint32_t milliseconds)
  */
 static uint32_t bol_port_now_ms(void *context)
 {
+    // The quotient sits in its own object, so no composite expression takes a
+    // cast to another type (MISRA Rule 10.8). The counter wraps about every 49
+    // days, and the caller takes an unsigned difference, which holds across a
+    // wrap.
+    const int64_t now_ms = esp_timer_get_time() / 1000;
+
     (void)context;
 
-    return (uint32_t)(esp_timer_get_time() / 1000);
+    return (uint32_t)now_ms;
 }
 
 /**
@@ -747,7 +755,7 @@ static esp_err_t bol_handle_role(const char *object, size_t length_bytes, uint32
 static esp_err_t bol_handle_cell(const char *object, size_t length_bytes, uint32_t seq)
 {
     char pass_text[BOL_PASS_TEXT_BYTES];
-    bol_node_cell_t cell = {
+    bol_node_cell_t condition = {
         .cell_id = 0U, .channel = 0U, .power_set_value = 0U,
         .payload_bytes = 0U, .pass = BOL_PASS_BROADCAST, .frames = 0U
     };
@@ -765,39 +773,39 @@ static esp_err_t bol_handle_cell(const char *object, size_t length_bytes, uint32
         ret = ESP_ERR_INVALID_ARG;
     }
     if (ret == ESP_OK) {
-        cell.cell_id = (uint16_t)cell_id;
-        ret = bol_json_get_u32(object, length_bytes, "channel", &cell.channel);
+        condition.cell_id = (uint16_t)cell_id;
+        ret = bol_json_get_u32(object, length_bytes, "channel", &condition.channel);
     }
     if (ret == ESP_OK) {
-        ret = bol_json_get_u32(object, length_bytes, "power_set_value", &cell.power_set_value);
+        ret = bol_json_get_u32(object, length_bytes, "power_set_value", &condition.power_set_value);
     }
     if (ret == ESP_OK) {
-        ret = bol_json_get_u32(object, length_bytes, "payload_bytes", &cell.payload_bytes);
+        ret = bol_json_get_u32(object, length_bytes, "payload_bytes", &condition.payload_bytes);
     }
     if (ret == ESP_OK) {
-        ret = bol_json_get_u32(object, length_bytes, "frames", &cell.frames);
+        ret = bol_json_get_u32(object, length_bytes, "frames", &condition.frames);
     }
     if (ret == ESP_OK) {
         ret = bol_json_get_text(object, length_bytes, "pass", pass_text, sizeof(pass_text));
     }
     if (ret == ESP_OK) {
-        ret = bol_node_parse_pass(pass_text, &cell.pass);
+        ret = bol_node_parse_pass(pass_text, &condition.pass);
     }
     if (ret == ESP_OK) {
-        ret = bol_node_set_cell(&s_node, &cell, (uint32_t)ESP_NOW_MAX_DATA_LEN_V2);
+        ret = bol_node_set_cell(&s_node, &condition, (uint32_t)ESP_NOW_MAX_DATA_LEN_V2);
     }
     if (ret == ESP_OK) {
-        ret = bol_radio_apply_condition((uint8_t)cell.channel, (int8_t)cell.power_set_value,
+        ret = bol_radio_apply_condition((uint8_t)condition.channel, (int8_t)condition.power_set_value,
                                         &read_back);
     }
     if ((ret == ESP_OK) && (s_node.role == BOL_ROLE_SENDER) && s_node.has_peer) {
-        ret = bol_radio_set_peers(s_node.peer_mac, (uint8_t)cell.channel);
+        ret = bol_radio_set_peers(s_node.peer_mac, (uint8_t)condition.channel);
     }
     if ((ret == ESP_OK) && (s_node.role == BOL_ROLE_RECEIVER)) {
         // The receiver takes the run, the cell, and the pass before the first
         // frame arrives (decision record
         // 2026-11-16-the-arm-and-finish-of-a-receiver-pass.md).
-        ret = bol_receiver_arm(s_node.run_id, cell.cell_id, cell.pass,
+        ret = bol_receiver_arm(s_node.run_id, condition.cell_id, condition.pass,
                                s_node.packets_per_message);
     }
     if (ret == ESP_OK) {
@@ -809,8 +817,8 @@ static esp_err_t bol_handle_cell(const char *object, size_t length_bytes, uint32
                                      "\"payload_bytes\":%u,"
                                      "\"power_set_value_read_back\":%d}\n",
                                      (unsigned int)BOL_PROTO_VERSION, (unsigned int)seq,
-                                     (unsigned int)cell.cell_id, (unsigned int)cell.channel,
-                                     (unsigned int)cell.payload_bytes, (int)read_back);
+                                     (unsigned int)condition.cell_id, (unsigned int)condition.channel,
+                                     (unsigned int)condition.payload_bytes, (int)read_back);
 
         ret = bol_reply_fits(written);
     }
@@ -859,7 +867,7 @@ static esp_err_t bol_handle_go(const char *object, size_t length_bytes, uint32_t
     if (ret == ESP_OK) {
         ret = bol_node_check_cell(&s_node, (uint16_t)cell_id, pass);
     }
-    if ((ret == ESP_OK) && (frames != s_node.cell.frames)) {
+    if ((ret == ESP_OK) && (frames != s_node.condition.frames)) {
         // The host states one frame budget on the cell and the go of one pass.
         // A node that took another budget armed a receiver for frames that this
         // pass never sends.
@@ -880,24 +888,24 @@ static esp_err_t bol_handle_go(const char *object, size_t length_bytes, uint32_t
         };
         const bol_sender_pass_t sender_pass = {
             .run_id = s_node.run_id,
-            .cell_id = s_node.cell.cell_id,
+            .cell_id = s_node.condition.cell_id,
             .pass = pass,
-            .frames = s_node.cell.frames,
-            .payload_bytes = s_node.cell.payload_bytes,
+            .frames = s_node.condition.frames,
+            .payload_bytes = s_node.condition.payload_bytes,
             .payload_limit_bytes = (uint32_t)ESP_NOW_MAX_DATA_LEN_V2,
             .frame = s_frame,
             .frame_capacity_bytes = sizeof(s_frame)
         };
 
         s_pass_seq = seq;
-        s_pass_cell_id = s_node.cell.cell_id;
+        s_pass_cell_id = s_node.condition.cell_id;
         s_pass_address = (pass == BOL_PASS_UNICAST) ? s_node.peer_mac
                          : bol_radio_broadcast_address();
 
         ret = bol_sender_run_pass(&port, &sender_pass, &s_sender_counters);
     }
     if (ret == ESP_OK) {
-        ret = bol_reply_go(seq, s_node.cell.cell_id, true, s_sender_counters.packets_sent);
+        ret = bol_reply_go(seq, s_node.condition.cell_id, true, s_sender_counters.packets_sent);
     }
 
     return ret;

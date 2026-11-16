@@ -15,9 +15,6 @@
 #include "bol_node.h"
 #include "bol_stats.h"
 
-/** @brief The digits that a MAC address uses in its text. */
-static const char s_hex_digits[] = "0123456789abcdef";
-
 /**
  * @brief Returns the value of one hexadecimal digit.
  *
@@ -51,7 +48,7 @@ void bol_node_reset(bol_node_t *node)
         // The return value of memset is the destination, which the caller already holds.
         (void)memset(node, 0, sizeof(*node));
         node->role = BOL_ROLE_NONE;
-        node->cell.pass = BOL_PASS_BROADCAST;
+        node->condition.pass = BOL_PASS_BROADCAST;
     }
 }
 
@@ -176,14 +173,21 @@ esp_err_t bol_node_format_mac(const uint8_t *mac, char *out_text, size_t out_cap
     } else if (out_capacity_bytes < BOL_MAC_TEXT_BYTES) {
         ret = ESP_ERR_INVALID_SIZE;
     } else {
+        // The table sits at block scope, because this function is the only
+        // reader of it (MISRA Rule 8.9).
+        static const char hex_digits[] = "0123456789abcdef";
         size_t index = 0U;
 
         while (index < BOL_MAC_BYTES) {
             const size_t offset = index * 3U;
             const uint8_t value = mac[index];
+            // Each half sits in its own object, so no composite expression takes
+            // a cast to another type (MISRA Rule 10.8).
+            const uint32_t high = ((uint32_t)value >> 4U) & 0x0FU;
+            const uint32_t low = (uint32_t)value & 0x0FU;
 
-            out_text[offset] = s_hex_digits[(size_t)(((uint32_t)value >> 4U) & 0x0FU)];
-            out_text[offset + 1U] = s_hex_digits[(size_t)((uint32_t)value & 0x0FU)];
+            out_text[offset] = hex_digits[high];
+            out_text[offset + 1U] = hex_digits[low];
             if (index < (BOL_MAC_BYTES - 1U)) {
                 out_text[offset + 2U] = ':';
             }
@@ -207,7 +211,7 @@ esp_err_t bol_node_set_role(bol_node_t *node, bol_role_t role, uint32_t run_id,
         ret = ESP_ERR_INVALID_ARG;
     } else if ((role == BOL_ROLE_SENDER) && (peer_mac == NULL)) {
         // The sender reaches the receiver by address, so a sender without one
-        // cannot run the unicast pass of its cell.
+        // cannot run the unicast pass of its condition.
         ret = ESP_ERR_INVALID_ARG;
     } else {
         bol_node_reset(node);
@@ -224,35 +228,35 @@ esp_err_t bol_node_set_role(bol_node_t *node, bol_role_t role, uint32_t run_id,
     return ret;
 }
 
-esp_err_t bol_node_set_cell(bol_node_t *node, const bol_node_cell_t *cell,
+esp_err_t bol_node_set_cell(bol_node_t *node, const bol_node_cell_t *condition,
                             uint32_t payload_limit_bytes)
 {
     esp_err_t ret = ESP_OK;
 
-    if ((node == NULL) || (cell == NULL)) {
+    if ((node == NULL) || (condition == NULL)) {
         ret = ESP_ERR_INVALID_ARG;
     } else if (node->role == BOL_ROLE_NONE) {
         ret = ESP_ERR_INVALID_STATE;
-    } else if (cell->cell_id > (uint16_t)BOL_FRAME_CELL_ID_MAX) {
+    } else if (condition->cell_id > (uint16_t)BOL_FRAME_CELL_ID_MAX) {
         ret = ESP_ERR_INVALID_ARG;
-    } else if (cell->payload_bytes < BOL_FRAME_HEADER_BYTES) {
+    } else if (condition->payload_bytes < BOL_FRAME_HEADER_BYTES) {
         // A message holds the header of its first packet, so a payload below
         // that header carries no frame.
         ret = ESP_ERR_INVALID_ARG;
-    } else if ((cell->frames == 0U) || (payload_limit_bytes == 0U)) {
+    } else if ((condition->frames == 0U) || (payload_limit_bytes == 0U)) {
         ret = ESP_ERR_INVALID_ARG;
-    } else if (cell->channel > (uint32_t)UINT8_MAX) {
+    } else if (condition->channel > (uint32_t)UINT8_MAX) {
         ret = ESP_ERR_INVALID_ARG;
-    } else if (cell->power_set_value > (uint32_t)INT8_MAX) {
+    } else if (condition->power_set_value > (uint32_t)INT8_MAX) {
         ret = ESP_ERR_INVALID_ARG;
     } else {
-        const uint32_t packets = bol_stats_packets_per_message(cell->payload_bytes,
+        const uint32_t packets = bol_stats_packets_per_message(condition->payload_bytes,
                                                                payload_limit_bytes);
 
         if (packets == 0U) {
             ret = ESP_ERR_INVALID_ARG;
         } else {
-            node->cell = *cell;
+            node->condition = *condition;
             node->packets_per_message = packets;
             node->has_cell = true;
         }
@@ -272,7 +276,7 @@ esp_err_t bol_node_positions(const bol_node_t *node, uint32_t *out_positions)
     } else {
         // A pass sends whole messages only, so the product stays at or below the
         // frame budget and no multiplication wraps.
-        const uint32_t messages = bol_stats_messages_that_fit(node->cell.frames,
+        const uint32_t messages = bol_stats_messages_that_fit(node->condition.frames,
                                                               node->packets_per_message);
 
         *out_positions = messages * node->packets_per_message;
@@ -289,7 +293,7 @@ esp_err_t bol_node_check_cell(const bol_node_t *node, uint16_t cell_id, bol_pass
         ret = ESP_ERR_INVALID_ARG;
     } else if (!node->has_cell) {
         ret = ESP_ERR_INVALID_STATE;
-    } else if ((node->cell.cell_id != cell_id) || (node->cell.pass != pass)) {
+    } else if ((node->condition.cell_id != cell_id) || (node->condition.pass != pass)) {
         ret = ESP_ERR_INVALID_STATE;
     } else {
         ret = ESP_OK;

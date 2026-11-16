@@ -46,7 +46,7 @@
  */
 static bol_node_cell_t bol_test_cell(void)
 {
-    bol_node_cell_t cell = {
+    bol_node_cell_t condition = {
         .cell_id = 12U,
         .channel = 6U,
         .power_set_value = 44U,
@@ -55,7 +55,7 @@ static bol_node_cell_t bol_test_cell(void)
         .frames = BOL_TEST_FRAMES
     };
 
-    return cell;
+    return condition;
 }
 
 /**
@@ -63,12 +63,12 @@ static bol_node_cell_t bol_test_cell(void)
  */
 static void bol_test_arm(bol_node_t *node, uint32_t payload_bytes)
 {
-    bol_node_cell_t cell = bol_test_cell();
+    bol_node_cell_t condition = bol_test_cell();
 
-    cell.payload_bytes = payload_bytes;
+    condition.payload_bytes = payload_bytes;
     bol_node_reset(node);
     TEST_ASSERT_EQUAL_INT(ESP_OK, bol_node_set_role(node, BOL_ROLE_RECEIVER, 7U, NULL));
-    TEST_ASSERT_EQUAL_INT(ESP_OK, bol_node_set_cell(node, &cell, BOL_TEST_LIMIT_V2));
+    TEST_ASSERT_EQUAL_INT(ESP_OK, bol_node_set_cell(node, &condition, BOL_TEST_LIMIT_V2));
 }
 
 TEST_CASE("the reader takes a well-formed address", "[bol_node]")
@@ -205,51 +205,51 @@ TEST_CASE("a role command clears the condition of the run before it", "[bol_node
     TEST_ASSERT_EQUAL_UINT32(11U, node.run_id);
 }
 
-TEST_CASE("a cell command before a role command names an error", "[bol_node]")
+TEST_CASE("a condition command before a role command names an error", "[bol_node]")
 {
     bol_node_t node;
-    const bol_node_cell_t cell = bol_test_cell();
+    const bol_node_cell_t condition = bol_test_cell();
 
     bol_node_reset(&node);
     TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_STATE,
-                          bol_node_set_cell(&node, &cell, BOL_TEST_LIMIT_V2));
+                          bol_node_set_cell(&node, &condition, BOL_TEST_LIMIT_V2));
 }
 
 TEST_CASE("a condition outside its range names an error", "[bol_node]")
 {
     bol_node_t node;
-    bol_node_cell_t cell = bol_test_cell();
+    bol_node_cell_t condition = bol_test_cell();
 
     bol_node_reset(&node);
     TEST_ASSERT_EQUAL_INT(ESP_OK, bol_node_set_role(&node, BOL_ROLE_RECEIVER, 7U, NULL));
 
-    cell = bol_test_cell();
-    cell.cell_id = (uint16_t)(BOL_FRAME_CELL_ID_MAX + 1U);
+    condition = bol_test_cell();
+    condition.cell_id = (uint16_t)(BOL_FRAME_CELL_ID_MAX + 1U);
     TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_ARG,
-                          bol_node_set_cell(&node, &cell, BOL_TEST_LIMIT_V2));
+                          bol_node_set_cell(&node, &condition, BOL_TEST_LIMIT_V2));
 
-    cell = bol_test_cell();
-    cell.payload_bytes = BOL_FRAME_HEADER_BYTES - 1U;
+    condition = bol_test_cell();
+    condition.payload_bytes = BOL_FRAME_HEADER_BYTES - 1U;
     TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_ARG,
-                          bol_node_set_cell(&node, &cell, BOL_TEST_LIMIT_V2));
+                          bol_node_set_cell(&node, &condition, BOL_TEST_LIMIT_V2));
 
-    cell = bol_test_cell();
-    cell.frames = 0U;
+    condition = bol_test_cell();
+    condition.frames = 0U;
     TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_ARG,
-                          bol_node_set_cell(&node, &cell, BOL_TEST_LIMIT_V2));
+                          bol_node_set_cell(&node, &condition, BOL_TEST_LIMIT_V2));
 
-    cell = bol_test_cell();
-    cell.channel = 256U;
+    condition = bol_test_cell();
+    condition.channel = 256U;
     TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_ARG,
-                          bol_node_set_cell(&node, &cell, BOL_TEST_LIMIT_V2));
+                          bol_node_set_cell(&node, &condition, BOL_TEST_LIMIT_V2));
 
-    cell = bol_test_cell();
-    cell.power_set_value = 128U;
+    condition = bol_test_cell();
+    condition.power_set_value = 128U;
     TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_ARG,
-                          bol_node_set_cell(&node, &cell, BOL_TEST_LIMIT_V2));
+                          bol_node_set_cell(&node, &condition, BOL_TEST_LIMIT_V2));
 
-    cell = bol_test_cell();
-    TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_ARG, bol_node_set_cell(&node, &cell, 0U));
+    condition = bol_test_cell();
+    TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_ARG, bol_node_set_cell(&node, &condition, 0U));
 }
 
 TEST_CASE("a payload at the limit takes one packet per message", "[bol_node]")
@@ -308,7 +308,7 @@ TEST_CASE("the positions of a node without a condition name an error", "[bol_nod
     TEST_ASSERT_EQUAL_INT(ESP_ERR_INVALID_STATE, bol_node_positions(&node, &positions));
 }
 
-TEST_CASE("a command of another cell or another pass names an error", "[bol_node]")
+TEST_CASE("a command of another condition or another pass names an error", "[bol_node]")
 {
     bol_node_t node;
 
