@@ -1,7 +1,7 @@
 # The country code in the hello reply
 
 Date: 2026-11-16
-Status: Proposed
+Status: Accepted
 
 ## Context
 
