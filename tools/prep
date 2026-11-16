@@ -36,6 +36,7 @@ readonly BOL_TEST_SRCS=(
     "components/bolis/test/test_bol_stats.c"
     "components/bolis/test/test_bol_rxstats.c"
     "components/bolis/test/test_bol_node.c"
+    "components/bolis/test/test_bol_sender.c"
 )
 readonly BOL_TEST_MODULES=(
     "components/bolis/src/bol_json.c"
@@ -43,6 +44,7 @@ readonly BOL_TEST_MODULES=(
     "components/bolis/src/bol_stats.c"
     "components/bolis/src/bol_rxstats.c"
     "components/bolis/src/bol_node.c"
+    "components/bolis/src/bol_sender.c"
 )
 
 # The host package carries its own virtual environment, because a bare python3
