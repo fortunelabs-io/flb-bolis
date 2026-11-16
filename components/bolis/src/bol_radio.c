@@ -188,8 +188,15 @@ esp_err_t bol_radio_country_code(char *out_text, size_t out_capacity_bytes)
     }
 
     if (ret == ESP_OK) {
-        const size_t length_bytes = strnlen(code, sizeof(code));
+        // The clear above holds a terminator inside the buffer, and the scan
+        // stops at its end, so no read leaves the object. strnlen belongs to
+        // POSIX rather than to C17, which MISRA Rule 17.3 rules out here.
+        size_t length_bytes = 0U;
         size_t index = 0U;
+
+        while ((length_bytes < sizeof(code)) && (code[length_bytes] != '\0')) {
+            length_bytes++;
+        }
 
         if (length_bytes == 0U) {
             ret = ESP_ERR_INVALID_STATE;
