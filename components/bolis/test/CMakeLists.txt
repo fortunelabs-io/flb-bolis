@@ -6,7 +6,7 @@
 #
 # WHOLE_ARCHIVE keeps the test case registrations, which no symbol references.
 idf_component_register(
-    SRCS "test_bol_json.c" "../src/bol_json.c" "test_bol_frame.c" "../src/bol_frame.c" "test_bol_stats.c" "../src/bol_stats.c" "test_bol_rxstats.c" "../src/bol_rxstats.c"
+    SRCS "test_bol_json.c" "../src/bol_json.c" "test_bol_frame.c" "../src/bol_frame.c" "test_bol_stats.c" "../src/bol_stats.c" "test_bol_rxstats.c" "../src/bol_rxstats.c" "test_bol_node.c" "../src/bol_node.c" "test_bol_sender.c" "../src/bol_sender.c"
     PRIV_INCLUDE_DIRS "../priv_include"
     PRIV_REQUIRES unity
     WHOLE_ARCHIVE

@@ -33,11 +33,13 @@ LINE_PREFIX: Final = "@bol "
 # newline. A node rejects a longer line and counts it.
 LINE_MAX_BYTES: Final = 512
 
-# The version of this wire contract. The first version is 1.
-PROTO_VERSION: Final = 1
+# The version of this wire contract. Version 2 carries the field keys of the
+# role, cell, go, and stats commands, the run ID on the role command, the
+# dropped packet counter of a receiver, and the pass and the frame budget on
+# the cell command. Both sides change this version in one release.
+PROTO_VERSION: Final = 2
 
-# The five commands of the contract. The firmware answers hello and names the
-# other four as unsupported until it carries them.
+# The five commands of the contract. The firmware carries all five.
 COMMANDS: Final = ("hello", "role", "cell", "go", "stats")
 
 # The host raises seq for each command and the node copies it into the reply.
