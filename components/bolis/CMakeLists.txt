@@ -2,7 +2,7 @@ idf_component_register(
     SRCS "src/bol_radio.c" "src/bol_console.c" "src/bol_json.c" "src/bol_frame.c" "src/bol_stats.c" "src/bol_rxstats.c" "src/bol_receiver.c" "src/bol_node.c" "src/bol_sender.c"
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "priv_include"
-    PRIV_REQUIRES esp_wifi esp_netif esp_event nvs_flash esp_driver_uart esp_app_format vfs
+    PRIV_REQUIRES esp_wifi esp_netif esp_event nvs_flash esp_driver_uart esp_app_format vfs esp_timer
 )
 
 # Decision record 2026-10-01-misra-c-2012-coding-baseline.md fixes the language at C17,
