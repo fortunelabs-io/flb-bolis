@@ -7,9 +7,12 @@ import re
 from pathlib import Path
 
 import pytest
+from examples import EXPECTED_BINS
 
 import bolis.flasher
+import bolis.orchestrator
 import bolis.transport
+from bolis import BolisError
 from bolis.cli import (
     BolisValidationError,
     RunArgs,
@@ -24,7 +27,7 @@ from bolis.cli import (
     validate_payload_bytes,
     validate_power_set_value,
 )
-from bolis.protocol import PROTO_VERSION
+from bolis.protocol import PROTO_VERSION, decode_reply
 from bolis.sweep import Baseline
 
 # The literal values below come from thinkbook section 8, decision
@@ -139,6 +142,15 @@ FIXED_SEED = 12345
 
 PORTS = ("/dev/ttyUSB0", "/dev/ttyUSB1")
 
+# The five entries of the declared section of thinkbook section 9.
+EXPECTED_DECLARED_KEYS = (
+    "distance",
+    "orientation",
+    "antenna",
+    "enclosure",
+    "surroundings",
+)
+
 # Six hexadecimal pairs joined by colons. A role reply carries a MAC address,
 # and no plan, log, run record, or report may state one.
 MAC_PATTERN = re.compile(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}")
@@ -182,6 +194,8 @@ def run_args(
         plan=plan,
         mode="broadcast",
         print_plan=True,
+        out=Path(),
+        declared_text=dict.fromkeys(EXPECTED_DECLARED_KEYS, ""),
     )
 
 
@@ -307,23 +321,220 @@ def test_the_plan_reports_the_fallback_baseline_only_when_all_three_are_absent(
     assert f"Baseline source: {expected}" in out
 
 
-def test_print_plan_returns_zero_and_a_run_without_it_returns_one(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Two statuses report two outcomes: a plan built, and a run blocked.
+class _FakePort:
+    """A port that opens and closes and carries no device."""
 
-    The plan needs no node, so --print-plan opens no port. A run reaches both
-    nodes and then stops, because the orchestrator does not exist.
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeReply:
+    """One decoded reply, with the fields that a node stated."""
+
+    def __init__(self, fields: dict[str, object]) -> None:
+        self.fields = fields
+
+
+def sender_counters() -> dict[str, object]:
+    """Builds the counters that a sender states for one pass."""
+    return {
+        "messages_sent": 2000,
+        "packets_sent": 2000,
+        "callback_ok": 2000,
+        "callback_failed": 0,
+        "no_mem_events": 0,
+        "rejected_lines": 0,
+        "send_to_callback_us_histogram": [0] * EXPECTED_BINS,
+        "send_errors": [],
+    }
+
+
+def receiver_counters() -> dict[str, object]:
+    """Builds the counters that a receiver states for one pass."""
+    return {
+        "packets_received": 1990,
+        "duplicates": 0,
+        "foreign_packets": 0,
+        "messages_complete": 1990,
+        "messages_incomplete": 10,
+        "corrupt_packets": 0,
+        "dropped_packets": 0,
+        "rejected_lines": 0,
+        "loss_run_length_histogram": [0] * EXPECTED_BINS,
+        "rssi_min_dbm": -71,
+        "rssi_mean_dbm": -63.5,
+        "rssi_max_dbm": -58,
+    }
+
+
+class _FakeLine:
+    """A transport that answers every command of a run from a script."""
+
+    def __init__(self, port: _FakePort, hello: str | None = None) -> None:
+        self.role = "sender" if port.name == PORTS[0] else "receiver"
+        self.hello = hello if hello is not None else hello_line()
+        self.refuse_cell_from = -1
+        self.cells_seen = 0
+
+    def command(self, name: str, fields: dict[str, object] | None = None) -> object:
+        """Answers one command the way a node of this role answers it."""
+        given = fields or {}
+        if name == "hello":
+            return decode_reply(self.hello)
+        if name == "role":
+            return _FakeReply({"role": self.role, "mac": "aa:bb:cc:dd:ee:ff"})
+        if name == "cell":
+            self.cells_seen += 1
+            if 0 <= self.refuse_cell_from < self.cells_seen:
+                raise BolisError("the node refused the channel of that cell.")
+            return _FakeReply(
+                {
+                    "cell_id": given["cell_id"],
+                    "channel": given["channel"],
+                    "payload_bytes": given["payload_bytes"],
+                    "power_set_value_read_back": given["power_set_value"],
+                }
+            )
+        if name == "stats":
+            counters = (
+                sender_counters() if self.role == "sender" else receiver_counters()
+            )
+            return _FakeReply(counters)
+        raise AssertionError(f"the run sent an unexpected command: {name}")
+
+    def run_pass(self, fields: dict[str, object], on_progress: object = None) -> object:
+        """Answers the go command with a finished pass."""
+        return _FakeReply(
+            {
+                "cell_id": fields["cell_id"],
+                "done": True,
+                "frames_sent": fields["frames"],
+            }
+        )
+
+
+def attach_fake_nodes(
+    monkeypatch: pytest.MonkeyPatch,
+    hellos: tuple[str, str] | None = None,
+    refuse_cell_from: int = -1,
+) -> dict[str, _FakeLine]:
+    """Gives the run two nodes that answer from a script and hold no device.
+
+    Args:
+        monkeypatch: The patcher of this case.
+        hellos: The hello line of the sender and of the receiver, or None for
+            one matched pair.
+        refuse_cell_from: The cell command, counting from 1, at which the
+            sender refuses. A negative value refuses none.
+
+    Returns:
+        The two transports, by role.
     """
+    lines: dict[str, _FakeLine] = {}
+    sender_hello, receiver_hello = hellos or (hello_line(), hello_line())
+
+    def open_port(port: str) -> _FakePort:
+        return _FakePort(port)
+
+    def build_line(port: _FakePort, *_args: object, **_kwargs: object) -> _FakeLine:
+        hello = sender_hello if port.name == PORTS[0] else receiver_hello
+        line = _FakeLine(port, hello)
+        if line.role == "sender":
+            line.refuse_cell_from = refuse_cell_from
+        lines[line.role] = line
+        return line
+
+    monkeypatch.setattr(bolis.transport, "open_serial_port", open_port)
+    monkeypatch.setattr(bolis.transport, "Transport", build_line)
+
+    # The orchestrator waits the settle time after every pass. These cases hold
+    # no radio to settle, so they keep its logic and drop the wait.
+    orchestrator = bolis.orchestrator.Orchestrator
+
+    def build_runner(
+        sender: object, receiver: object, *_args: object, **_kwargs: object
+    ) -> object:
+        return orchestrator(sender, receiver, sleep=lambda _seconds: None)
+
+    monkeypatch.setattr(bolis.orchestrator, "Orchestrator", build_runner)
+    return lines
+
+
+def test_print_plan_opens_no_port_and_returns_zero(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The plan needs no node, so --print-plan opens no port."""
     assert main(["run", *PORTS, "--print-plan"]) == 0
     assert "bolis run plan" in capsys.readouterr().out
 
-    monkeypatch.setattr(bolis.transport, "read_hello_line", lambda _port: hello_line())
-    assert main(["run", *PORTS]) == 1
-    captured = capsys.readouterr()
-    assert "orchestrator" in captured.err
-    assert "plan holds" in captured.err
-    assert "sender" in captured.out
+
+def test_a_run_writes_one_record_and_returns_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A run that reaches the end of its plan writes one record of its cells."""
+    attach_fake_nodes(monkeypatch)
+
+    status = main(["run", *PORTS, "--out", str(tmp_path), "--distance", "2 m"])
+
+    assert status == 0
+    out = capsys.readouterr().out
+    assert "sender" in out
+    assert "wrote the run record" in out
+
+    records = sorted(tmp_path.glob("*.json"))
+    assert len(records) == 1
+    document = json.loads(records[0].read_text(encoding="utf-8"))
+    assert document["run"]["status"] == "complete"
+    assert document["setup"]["country_code"] == "01"
+    assert document["declared"]["distance"]["value"] == "2 m"
+    assert document["cells"]
+
+
+def test_a_run_states_the_country_code_that_the_node_reported(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The record takes the code from the node, not from a constant."""
+    other = hello_line(country_code="JP")
+    attach_fake_nodes(monkeypatch, hellos=(other, other))
+
+    assert main(["run", *PORTS, "--out", str(tmp_path)]) == 0
+
+    document = json.loads(
+        next(iter(sorted(tmp_path.glob("*.json")))).read_text(encoding="utf-8")
+    )
+    assert document["setup"]["country_code"] == "JP"
+
+
+def test_a_run_that_loses_a_node_keeps_the_cells_that_ran(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A run that stops early still records what the bench measured."""
+    attach_fake_nodes(monkeypatch, refuse_cell_from=2)
+
+    status = main(["run", *PORTS, "--out", str(tmp_path)])
+
+    assert status == 1
+    assert "stopped early" in capsys.readouterr().err
+
+    document = json.loads(
+        next(iter(sorted(tmp_path.glob("*.json")))).read_text(encoding="utf-8")
+    )
+    assert document["run"]["status"] == "stopped"
+    assert "stopped the run" in document["run"]["stopped_reason"]
+
+
+def test_a_run_notes_an_empty_declared_section(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A verification pair needs the geometry, so the run says it is missing."""
+    attach_fake_nodes(monkeypatch)
+
+    assert main(["run", *PORTS, "--out", str(tmp_path)]) == 0
+    assert "declared section is empty" in capsys.readouterr().out
 
 
 def test_main_run_opens_no_port_for_a_plan(
@@ -342,16 +553,19 @@ def test_main_run_opens_no_port_for_a_plan(
 
 
 def test_main_run_stops_when_the_two_nodes_differ_in_firmware(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     """The host refuses a mismatched pair before the first cell."""
-    lines = iter([hello_line(), hello_line(elf_sha256=OTHER_ELF_SHA256)])
-    monkeypatch.setattr(bolis.transport, "read_hello_line", lambda _port: next(lines))
+    attach_fake_nodes(
+        monkeypatch,
+        hellos=(hello_line(), hello_line(elf_sha256=OTHER_ELF_SHA256)),
+    )
 
-    status = main(["run", *PORTS])
+    status = main(["run", *PORTS, "--out", str(tmp_path)])
 
     assert status == 1
     assert "firmware" in capsys.readouterr().err
+    assert not list(tmp_path.glob("*.json"))
 
 
 def test_the_default_plan_carries_the_cell_count_of_the_thinkbook() -> None:
@@ -502,17 +716,17 @@ def test_main_flash_refuses_a_url_port(capsys: pytest.CaptureFixture[str]) -> No
 
 
 def test_main_run_uses_the_fallback_baseline_when_no_option_is_given(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     """Bolis run with no option names the fallback channel, power, and payload."""
-    monkeypatch.setattr(bolis.transport, "read_hello_line", lambda _port: hello_line())
-    status = main(["run", *PORTS])
-    assert status == 1
-    err = capsys.readouterr().err
-    assert f"channel {EXPECTED_FALLBACK_CHANNEL}" in err
-    assert f"power set value {EXPECTED_FALLBACK_POWER_SET_VALUE}" in err
-    assert str(EXPECTED_FALLBACK_PAYLOAD_BYTES) in err
-    assert "fallback" in err
+    attach_fake_nodes(monkeypatch)
+    status = main(["run", *PORTS, "--out", str(tmp_path)])
+    assert status == 0
+    out = capsys.readouterr().out
+    assert f"channel {EXPECTED_FALLBACK_CHANNEL}" in out
+    assert f"power set value {EXPECTED_FALLBACK_POWER_SET_VALUE}" in out
+    assert str(EXPECTED_FALLBACK_PAYLOAD_BYTES) in out
+    assert "fallback" in out
 
 
 def test_main_run_rejects_a_channel_outside_the_range(

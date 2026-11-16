@@ -2,7 +2,7 @@
 
 Bolis is a bench tool for ESP-NOW. It consists of firmware for two ESP32 nodes and a host CLI. The firmware sweeps the ESP-NOW link between the two nodes. The host CLI writes one report that shows which variable moves frame loss near the configuration of the user.
 
-Status: pre-release. The firmware component owns the radio and builds. It answers the `hello` command of the control line, and it names the `role`, `cell`, `go`, and `stats` commands as unsupported. The host package holds the control line codec, the firmware flasher, and the sweep plan. `bolis run --print-plan` prints a plan. `bolis run` reports the missing control line transport. `bolis flash` reads the image manifest and stops, because a checkout carries no prebuilt image. The serial transport, the orchestrator, the run record writer, and the report do not exist.
+Status: pre-release. The firmware component owns the radio and answers all five commands of the control line: `hello`, `role`, `cell`, `go`, and `stats`. It sends the frames of a pass, counts the frames it receives, and speaks contract version 2. The host package holds the control line codec, the serial transport, the firmware flasher, the sweep plan, the orchestrator, and the run record writer. `bolis run --print-plan` prints a plan without touching a node, and `bolis run` sweeps the link and writes one run record. `bolis flash` reads the image manifest and stops, because a checkout carries no prebuilt image. The report does not exist. No bench run has happened, so every timing figure of the firmware carries `[proposal]` in its decision record.
 
 ## Layout
 
