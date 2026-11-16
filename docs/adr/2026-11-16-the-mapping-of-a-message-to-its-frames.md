@@ -1,7 +1,7 @@
 # The mapping of a message to the frames that carry it
 
 Date: 2026-11-16
-Status: Proposed
+Status: Accepted
 
 ## Context
 
