@@ -1,7 +1,7 @@
 # The arm and the finish of a receiver pass
 
 Date: 2026-11-16
-Status: Proposed
+Status: Accepted
 
 ## Context
 
