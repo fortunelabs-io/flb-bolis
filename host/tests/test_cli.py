@@ -24,6 +24,7 @@ from bolis.cli import (
     validate_payload_bytes,
     validate_power_set_value,
 )
+from bolis.protocol import PROTO_VERSION
 from bolis.sweep import Baseline
 
 # The literal values below come from thinkbook section 8, decision
@@ -62,7 +63,7 @@ def hello_line(elf_sha256: str = NODE_ELF_SHA256, **overrides: object) -> str:
         The control line, with its prefix and its line ending.
     """
     fields: dict[str, object] = {
-        "proto": 1,
+        "proto": PROTO_VERSION,
         "reply": "hello",
         "seq": 0,
         "ok": True,

@@ -343,7 +343,8 @@ def test_decode_reply_reads_a_failed_reply() -> None:
     """A failed reply decodes, and err holds the name of the ESP-IDF code."""
     line = (
         f"{LINE_PREFIX}"
-        '{"proto":1,"reply":"role","seq":4,"ok":false,"err":"ESP_ERR_NOT_SUPPORTED"}\n'
+        f'{{"proto":{PROTO_VERSION},"reply":"role","seq":4,"ok":false,'
+        f'"err":"ESP_ERR_NOT_SUPPORTED"}}\n'
     )
     reply = decode_reply(line)
     assert not reply.ok
@@ -361,7 +362,8 @@ def test_raise_for_reply_raises_on_a_failed_reply() -> None:
     """A reply with ok false raises, and the error carries the three fields."""
     line = (
         f"{LINE_PREFIX}"
-        '{"proto":1,"reply":"go","seq":9,"ok":false,"err":"ESP_ERR_INVALID_STATE"}\n'
+        f'{{"proto":{PROTO_VERSION},"reply":"go","seq":9,"ok":false,'
+        f'"err":"ESP_ERR_INVALID_STATE"}}\n'
     )
     reply = decode_reply(line)
     with pytest.raises(BolisNodeError) as exc_info:

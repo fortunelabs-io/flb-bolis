@@ -215,11 +215,17 @@ class Orchestrator:
         Returns:
             The entry of this pass.
         """
+        # The cell command carries the pass and the frame budget, so a
+        # receiver arms before the first frame and closes the pass after it
+        # (ADR 2026-11-16-the-arm-and-finish-of-a-receiver-pass). The frame
+        # budget here and the one on the go command below state one value.
         applied = {
             "cell_id": cell_id,
             "channel": condition["channel"],
             "power_set_value": condition["power_set_value"],
             "payload_bytes": condition["payload_bytes"],
+            "pass": name,
+            "frames": condition["frames"],
         }
         # The receiver listens on the new channel before the first frame
         # leaves the sender (thinkbook section 7).
