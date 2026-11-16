@@ -33,6 +33,9 @@ BOLIS_VERSION = "0.1.0"
 FIRMWARE_PATH = "source"
 BLUETOOTH_CONTROLLER = "disabled"
 
+# The country code that the radio of the node reports.
+COUNTRY_CODE = "01"
+
 # Two hashes of the right shape: 64 lowercase hexadecimal characters each.
 SHA256_TEXT = "ab" * 32
 OTHER_SHA256_TEXT = "cd" * 32
@@ -69,6 +72,7 @@ def _hello_line(**overrides: object) -> str:
         "firmware_path": FIRMWARE_PATH,
         "elf_sha256": SHA256_TEXT,
         "bluetooth_controller": BLUETOOTH_CONTROLLER,
+        "country_code": COUNTRY_CODE,
     }
     fields.update(overrides)
     for key, value in list(fields.items()):
@@ -374,7 +378,7 @@ def test_raise_for_reply_raises_on_a_failed_reply() -> None:
 
 
 def test_parse_hello_reads_every_field_of_the_reply() -> None:
-    """The nine fields of a hello reply reach the Hello object."""
+    """The ten fields of a hello reply reach the Hello object."""
     hello = parse_hello(decode_reply(_hello_line()))
     assert hello.chip == CHIP
     assert hello.chip_revision == CHIP_REVISION
@@ -385,6 +389,7 @@ def test_parse_hello_reads_every_field_of_the_reply() -> None:
     assert hello.firmware_path == FIRMWARE_PATH
     assert hello.elf_sha256 == SHA256_TEXT
     assert hello.bluetooth_controller == BLUETOOTH_CONTROLLER
+    assert hello.country_code == COUNTRY_CODE
 
 
 def test_parse_hello_rejects_a_reply_to_another_command() -> None:
@@ -448,6 +453,19 @@ def test_parse_hello_rejects_a_bluetooth_state_outside_the_contract() -> None:
     reply = decode_reply(_hello_line(bluetooth_controller="asleep"))
     with pytest.raises(BolisProtocolError, match="bluetooth_controller"):
         parse_hello(reply)
+
+
+def test_parse_hello_rejects_a_country_code_of_another_shape() -> None:
+    """A code of letters and digits is the only shape the contract carries.
+
+    The node reads the code back from its radio and the firmware accepts
+    letters and digits only, so the host refuses anything else. Empty text
+    fails the envelope check, which names the key.
+    """
+    for code in ("", "0 1", 'a"b', "01;"):
+        reply = decode_reply(_hello_line(country_code=code))
+        with pytest.raises(BolisProtocolError, match=r"country_code|country code"):
+            parse_hello(reply)
 
 
 def test_parse_hello_rejects_a_missing_field() -> None:

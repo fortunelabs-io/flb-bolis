@@ -333,31 +333,41 @@ static esp_err_t bol_reply_hello(uint32_t seq)
 
     if (ret == ESP_OK) {
         char sha256_text[BOL_SHA256_TEXT_BYTES];
+        char country_text[BOL_COUNTRY_TEXT_BYTES];
 
         // The encoder writes every byte and the null terminator. The clear holds the
         // buffer defined even if a later change shortens the encoded length.
         // The return value of memset is the destination, which the caller already holds.
         (void)memset(sha256_text, 0, sizeof(sha256_text));
+        (void)memset(country_text, 0, sizeof(country_text));
         bol_hex_encode(description->app_elf_sha256, BOL_SHA256_BYTES, sha256_text);
 
-        // The idf_ver field holds a fixed-size array, so the precision bounds the read.
-        // cppcheck-suppress misra-c2012-21.6 ; D-001
-        const int written = snprintf(s_reply, sizeof(s_reply),
-                                     BOL_LINE_PREFIX
-                                     "{\"proto\":%u,\"reply\":\"hello\",\"seq\":%u,\"ok\":true,"
-                                     "\"chip\":\"%s\",\"chip_revision\":%u,"
-                                     "\"idf_version\":\"%.32s\",\"espnow_version\":%u,"
-                                     "\"payload_limit_bytes\":%u,\"bolis_version\":\"%s\","
-                                     "\"firmware_path\":\"" BOL_FIRMWARE_PATH "\","
-                                     "\"elf_sha256\":\"%s\","
-                                     "\"bluetooth_controller\":\"" BOL_BLUETOOTH_STATE "\"}\n",
-                                     (unsigned int)BOL_PROTO_VERSION, (unsigned int)seq,
-                                     bol_chip_name(chip.model), (unsigned int)chip.revision,
-                                     description->idf_ver, (unsigned int)espnow_version,
-                                     (unsigned int)ESP_NOW_MAX_DATA_LEN_V2, BOL_VERSION,
-                                     sha256_text);
+        // The reply states the code that the radio holds rather than the setting
+        // that configured it (decision record
+        // 2026-11-16-the-country-code-in-the-hello-reply.md).
+        ret = bol_radio_country_code(country_text, sizeof(country_text));
 
-        ret = bol_reply_fits(written);
+        if (ret == ESP_OK) {
+            // The idf_ver field holds a fixed-size array, so the precision bounds the read.
+            // cppcheck-suppress misra-c2012-21.6 ; D-001
+            const int written = snprintf(s_reply, sizeof(s_reply),
+                                         BOL_LINE_PREFIX
+                                         "{\"proto\":%u,\"reply\":\"hello\",\"seq\":%u,"
+                                         "\"ok\":true,\"chip\":\"%s\",\"chip_revision\":%u,"
+                                         "\"idf_version\":\"%.32s\",\"espnow_version\":%u,"
+                                         "\"payload_limit_bytes\":%u,\"bolis_version\":\"%s\","
+                                         "\"firmware_path\":\"" BOL_FIRMWARE_PATH "\","
+                                         "\"elf_sha256\":\"%s\","
+                                         "\"bluetooth_controller\":\"" BOL_BLUETOOTH_STATE "\","
+                                         "\"country_code\":\"%s\"}\n",
+                                         (unsigned int)BOL_PROTO_VERSION, (unsigned int)seq,
+                                         bol_chip_name(chip.model), (unsigned int)chip.revision,
+                                         description->idf_ver, (unsigned int)espnow_version,
+                                         (unsigned int)ESP_NOW_MAX_DATA_LEN_V2, BOL_VERSION,
+                                         sha256_text, country_text);
+
+            ret = bol_reply_fits(written);
+        }
     }
 
     if (ret == ESP_OK) {

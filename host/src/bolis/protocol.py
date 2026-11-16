@@ -142,6 +142,8 @@ class Hello:
         firmware_path: One of FIRMWARE_PATHS.
         elf_sha256: The ELF SHA-256, as 64 lowercase hexadecimal characters.
         bluetooth_controller: One of BLUETOOTH_STATES.
+        country_code: The country code that the radio of the node reports. The
+            code limits the channels that a run can sweep.
     """
 
     chip: str
@@ -153,6 +155,7 @@ class Hello:
     firmware_path: str
     elf_sha256: str
     bluetooth_controller: str
+    country_code: str
 
 
 def _require_key(obj: Mapping[str, Any], key: str) -> Any:  # noqa: ANN401
@@ -523,6 +526,14 @@ def parse_hello(reply: Reply) -> Hello:
             "the ELF SHA-256 holds a character that is no lowercase hexadecimal digit."
         )
 
+    # The node reads the code back from its radio, and the firmware accepts
+    # letters and digits only, so a code of another shape is a line to refuse.
+    country_code = _require_text(fields, "country_code")
+    if not country_code.isalnum():
+        raise BolisProtocolError(
+            f"the country code is {country_code!r}. A code holds letters and digits."
+        )
+
     return Hello(
         chip=_require_text(fields, "chip"),
         chip_revision=chip_revision,
@@ -539,6 +550,7 @@ def parse_hello(reply: Reply) -> Hello:
             BLUETOOTH_STATES,
             "bluetooth_controller",
         ),
+        country_code=country_code,
     )
 
 
@@ -549,7 +561,9 @@ def require_same_firmware(sender: Hello, receiver: Hello) -> None:
     2026-10-01-radio-ownership-and-prebuilt-firmware.md), and the host refuses
     a pair whose hello replies differ in firmware. The ELF SHA-256 names the
     image, so it decides the question: one hash fixes the Bolis version, the
-    ESP-IDF version, and the firmware path together.
+    ESP-IDF version, the firmware path, and the country code together. The
+    country code reaches a node through Kconfig, so two images that set a
+    different code carry a different hash, and this check stops that pair.
 
     Args:
         sender: The hello reply of the node that takes the sender role.

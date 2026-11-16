@@ -6,7 +6,9 @@ run <port> <port> [options] sweeps the link and writes one report.
 
 bolis run --print-plan resolves the baseline, builds the cell plan, prints it,
 and returns 0 (decision 2026-11-10-run-plan-resolution.md). Without that flag,
-bolis run builds the same plan and then reports the missing control line.
+bolis run builds the same plan, gives each node its role, runs every cell, and
+writes one run record into the directory that --out names. A run that loses a
+node keeps the cells that ran and states why it stopped.
 
 bolis flash writes the image to both nodes through the esptool Python API,
 then reads the hello reply of each node over the control line transport. That
@@ -17,12 +19,14 @@ reply is the check that proves what runs on a node
 import argparse
 import random
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import cast
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, cast
 
 from bolis import BolisError, __version__
-from bolis.protocol import Hello, decode_reply, parse_hello, require_same_firmware
+from bolis.protocol import Hello, parse_hello, require_same_firmware
 from bolis.sweep import (
     CHANNEL_MAX,
     CHANNEL_MIN,
@@ -34,6 +38,7 @@ from bolis.sweep import (
     PAYLOAD_MIN_BYTES,
     POWER_SET_VALUES,
     Baseline,
+    Cell,
     CellPlan,
     build_grid_plan,
     build_plan,
@@ -41,6 +46,18 @@ from bolis.sweep import (
 
 MODE_CHOICES = ("broadcast", "unicast")
 DEFAULT_MODE = "broadcast"
+
+# The five entries of the declared section of thinkbook section 9, in the
+# order the record states them. The schema requires every key and accepts
+# empty text, so a user who declares nothing still writes a valid record. A
+# verification pair needs the geometry, so the run prints a note when the
+# whole section is empty (decision 2026-10-01-reproducibility-verification.md).
+DECLARED_KEYS = ("distance", "orientation", "antenna", "enclosure", "surroundings")
+
+# The power-save mode of both nodes. The component always disables power save,
+# because a node in modem sleep does not receive ESP-NOW data (thinkbook
+# section 4), so the host states the value rather than asking a node for it.
+POWER_SAVE = "none"
 
 # The two plans of thinkbook section 8. The default plan varies one variable
 # at a time; the grid plan visits every combination.
@@ -72,10 +89,6 @@ class BolisValidationError(BolisError):
     """Raised when a value that the user typed fails validation."""
 
 
-class BolisNotImplementedError(BolisError):
-    """Raised by a command whose implementation has not arrived yet."""
-
-
 @dataclass(frozen=True)
 class FlashArgs:
     """The validated arguments of the flash command."""
@@ -97,6 +110,9 @@ class RunArgs:
         plan: One of PLAN_CHOICES.
         mode: One of MODE_CHOICES.
         print_plan: Whether to print the plan and return 0.
+        out: The directory that the host writes the run record into.
+        declared_text: The five entries of the declared section, by key. Bolis
+            checks none of them.
     """
 
     sender_port: str
@@ -106,6 +122,8 @@ class RunArgs:
     plan: str
     mode: str
     print_plan: bool
+    out: Path
+    declared_text: Mapping[str, str]
 
 
 def validate_channel(value: int) -> int:
@@ -320,6 +338,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the resolved cell plan and exit without touching a node.",
     )
+    run_parser.add_argument(
+        "--out",
+        default=None,
+        help=(
+            "The directory that the run record goes into. The default is the "
+            "working directory."
+        ),
+    )
+    for key in DECLARED_KEYS:
+        run_parser.add_argument(
+            f"--{key}",
+            default="",
+            help=(
+                f"The {key} of the bench, as you describe it. Bolis does not "
+                "check it, and the record states it as declared."
+            ),
+        )
 
     return parser
 
@@ -340,6 +375,7 @@ def _parse_run_args(parsed: argparse.Namespace) -> RunArgs:
         cast("int | None", parsed.power_set_value),
         cast("int | None", parsed.payload_bytes),
     )
+    out = cast("str | None", parsed.out)
     return RunArgs(
         sender_port=sender_port,
         receiver_port=receiver_port,
@@ -348,6 +384,10 @@ def _parse_run_args(parsed: argparse.Namespace) -> RunArgs:
         plan=cast(str, parsed.plan),
         mode=cast(str, parsed.mode),
         print_plan=cast(bool, parsed.print_plan),
+        # The host writes into the working directory when the user gives no
+        # --out (decision 2026-11-12-run-record-format.md).
+        out=Path.cwd() if out is None else Path(out),
+        declared_text={key: cast(str, getattr(parsed, key)) for key in DECLARED_KEYS},
     )
 
 
@@ -493,29 +533,62 @@ def _run_flash(parsed: argparse.Namespace) -> int:
     return 0
 
 
-def _read_pair(sender_port: str, receiver_port: str) -> tuple[Hello, Hello]:
-    """Reads the hello reply of each node and refuses a mismatched pair.
-
-    The host stops before the first cell when the two nodes report different
-    firmware (thinkbook section 11).
-
-    Args:
-        sender_port: The serial port of the node that takes the sender role.
-        receiver_port: The serial port of the node that takes the receiver
-            role.
+def utc_now() -> str:
+    """Returns the present instant in the form that a run record states.
 
     Returns:
-        The test condition of the sender and of the receiver, in that order.
-
-    Raises:
-        BolisProtocolError: The two nodes report different firmware.
+        The instant in UTC, in RFC 3339 form with a Z suffix and whole
+        seconds.
     """
-    from bolis import transport  # noqa: PLC0415
+    stamp = datetime.now(tz=timezone.utc).replace(microsecond=0)
+    return stamp.isoformat().replace("+00:00", "Z")
 
-    sender = parse_hello(decode_reply(transport.read_hello_line(sender_port)))
-    receiver = parse_hello(decode_reply(transport.read_hello_line(receiver_port)))
-    require_same_firmware(sender, receiver)
-    return sender, receiver
+
+def condition_of(cell: Cell, plan: CellPlan) -> dict[str, int]:
+    """Builds the condition that one cell of a plan sends.
+
+    Args:
+        cell: The cell of the plan.
+        plan: The plan that holds the frame budget of every cell.
+
+    Returns:
+        The channel, the transmit power, the payload size, and the frames.
+    """
+    return {
+        "channel": cell.channel,
+        "power_set_value": cell.power_set_value,
+        "payload_bytes": cell.payload_bytes,
+        "frames": plan.frames_per_cell,
+    }
+
+
+def _sweep(
+    runner: Any,  # noqa: ANN401
+    plan: CellPlan,
+    mode: str,
+) -> tuple[list[Any], str | None]:
+    """Runs every cell of a plan and reports why the run stopped.
+
+    A run that loses a node keeps the cells that ran, because the record of a
+    partial run still states what the bench measured
+    (decision 2026-11-12-serial-transport-reply-timeouts.md).
+
+    Args:
+        runner: The orchestrator of this run.
+        plan: The cells to run, in the order the plan states.
+        mode: The run mode, broadcast or unicast.
+
+    Returns:
+        The entries of every cell that ran, and the reason the run stopped, or
+        None when the run reached the end of its plan.
+    """
+    entries: list[Any] = []
+    for cell_id, cell in enumerate(plan.cells):
+        try:
+            entries.append(runner.run_cell(cell_id, condition_of(cell, plan), mode))
+        except BolisError as error:
+            return entries, f"cell {cell_id} stopped the run: {error}"
+    return entries, None
 
 
 def _run_run(parsed: argparse.Namespace) -> int:
@@ -525,17 +598,89 @@ def _run_run(parsed: argparse.Namespace) -> int:
         print(format_plan(plan, args.plan, args.mode))
         return 0
 
-    sender, receiver = _read_pair(args.sender_port, args.receiver_port)
-    print(format_node("sender", args.sender_port, sender))
-    print(format_node("receiver", args.receiver_port, receiver))
-
-    summary = summarize_plan(plan, args.plan)
-    raise BolisNotImplementedError(
-        "bolis run reached both nodes and they report the same firmware. The "
-        f"sweep of the link between {args.sender_port} and "
-        f"{args.receiver_port} in {args.mode} mode needs the orchestrator, "
-        f"which sends the role, cell, go, and stats commands. {summary}"
+    # These modules land here rather than at the top, because --print-plan
+    # touches no port and the transport imports pyserial.
+    from bolis import transport  # noqa: PLC0415
+    from bolis.orchestrator import (  # noqa: PLC0415
+        Bench,
+        Orchestrator,
+        build_cells,
+        build_declared,
+        build_firmware,
+        build_nodes,
+        build_run,
+        build_setup,
     )
+    from bolis.record import (  # noqa: PLC0415
+        draw_run_id,
+        prepare_directory,
+        write_record,
+    )
+
+    # A run that the host cannot record is a run that wasted a bench, so the
+    # directory is checked before the first cell
+    # (decision 2026-11-12-run-record-format.md).
+    prepare_directory(args.out)
+    run_id = draw_run_id(args.out)
+
+    sender_port = transport.open_serial_port(args.sender_port)
+    try:
+        receiver_port = transport.open_serial_port(args.receiver_port)
+        try:
+            sender_line = transport.Transport(sender_port)
+            receiver_line = transport.Transport(receiver_port)
+            sender = parse_hello(sender_line.command("hello"))
+            receiver = parse_hello(receiver_line.command("hello"))
+            require_same_firmware(sender, receiver)
+            print(format_node("sender", args.sender_port, sender))
+            print(format_node("receiver", args.receiver_port, receiver))
+            print(summarize_plan(plan, args.plan))
+
+            started_at = utc_now()
+            runner = Orchestrator(sender_line, receiver_line)
+            runner.assign_roles(run_id)
+            entries, stopped_reason = _sweep(runner, plan, args.mode)
+            ended_at = utc_now()
+        finally:
+            receiver_port.close()
+    finally:
+        sender_port.close()
+
+    bench = Bench(
+        country_code=sender.country_code,
+        power_save=POWER_SAVE,
+        declared_text=args.declared_text,
+    )
+    document = {
+        "run": build_run(
+            run_id,
+            started_at=started_at,
+            ended_at=ended_at,
+            bolis_version=sender.bolis_version,
+            mode=args.mode,
+            plan_name=args.plan,
+            seed=plan.seed,
+            stopped_reason=stopped_reason,
+        ),
+        "firmware": build_firmware(sender),
+        "nodes": build_nodes(sender, receiver),
+        "setup": build_setup(plan, bench, sender.bluetooth_controller),
+        "declared": build_declared(bench),
+        "cells": build_cells(entries),
+    }
+    path = write_record(document, args.out)
+
+    print(f"bolis wrote the run record {path}")
+    if not any(args.declared_text.values()):
+        print(
+            "The declared section is empty. A verification pair needs the "
+            "geometry of the bench, so state it with --distance and the "
+            "options beside it."
+        )
+    if stopped_reason is not None:
+        print(f"The run stopped early. {stopped_reason}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
