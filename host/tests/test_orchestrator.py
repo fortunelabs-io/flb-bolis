@@ -233,6 +233,42 @@ def test_the_receiver_takes_the_cell_before_the_sender() -> None:
     assert [name for name, _ in sender.sent] == ["cell", "go", "stats"]
 
 
+def test_the_cell_command_carries_the_pass_and_the_frame_budget() -> None:
+    """A receiver arms from the cell command, so that command states both."""
+    sender, receiver = pair()
+
+    orchestrator(sender, receiver).run_cell(0, CONDITION, BROADCAST)
+
+    cell_name, cell_fields = receiver.sent[0]
+    assert cell_name == "cell"
+    assert cell_fields["pass"] == BROADCAST
+    assert cell_fields["frames"] == CONDITION["frames"]
+    # Both nodes take one mapping, so the sender reads the same condition.
+    assert sender.sent[0] == ("cell", cell_fields)
+
+
+def test_the_cell_and_the_go_of_one_pass_state_one_frame_budget() -> None:
+    """A budget that differs arms a receiver for frames that never arrive."""
+    sender, receiver = pair()
+
+    orchestrator(sender, receiver).run_cell(0, CONDITION, UNICAST)
+
+    budgets = [
+        fields["frames"] for name, fields in sender.sent if name in {"cell", "go"}
+    ]
+    assert budgets == [CONDITION["frames"]] * 4
+
+
+def test_each_pass_of_a_unicast_run_arms_the_receiver_for_that_pass() -> None:
+    """A unicast run applies the cell once per pass, naming each one."""
+    sender, receiver = pair()
+
+    orchestrator(sender, receiver).run_cell(0, CONDITION, UNICAST)
+
+    passes = [fields["pass"] for name, fields in receiver.sent if name == "cell"]
+    assert passes == [BROADCAST, UNICAST]
+
+
 def test_the_host_waits_before_it_reads_the_counters() -> None:
     """A settle time catches late frames before the receiver reports."""
     sender, receiver = pair()
