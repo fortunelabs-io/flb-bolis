@@ -29,8 +29,7 @@
 /** @brief The highest bin index, which holds every value above the scale. */
 #define BOL_STATS_LAST_BIN (BOL_HISTOGRAM_BINS - 1U)
 
-// cppcheck-suppress misra-c2012-8.7 ; the sender task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 void bol_stats_reset(bol_sender_counters_t *counters)
 {
     if (counters != NULL) {
@@ -57,8 +56,7 @@ uint32_t bol_stats_histogram_bin(uint32_t microseconds)
     return bin;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the sender task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 void bol_stats_count_send_error(bol_sender_counters_t *counters, esp_err_t code)
 {
     if (counters != NULL) {
@@ -91,8 +89,7 @@ void bol_stats_count_send_error(bol_sender_counters_t *counters, esp_err_t code)
     }
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the sender task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 void bol_stats_count_callback(bol_sender_counters_t *counters, bool is_ok,
                               uint32_t microseconds)
 {
@@ -108,8 +105,7 @@ void bol_stats_count_callback(bol_sender_counters_t *counters, bool is_ok,
     }
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the sender task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 uint32_t bol_stats_packets_per_message(uint32_t payload_bytes,
                                        uint32_t payload_limit_bytes)
 {
@@ -122,8 +118,7 @@ uint32_t bol_stats_packets_per_message(uint32_t payload_bytes,
     return packets;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the sender task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 uint32_t bol_stats_messages_that_fit(uint32_t frames, uint32_t packets_per_message)
 {
     uint32_t messages = 0U;

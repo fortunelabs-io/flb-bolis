@@ -124,8 +124,7 @@ uint8_t bol_frame_fill_byte(const bol_frame_header_t *header, size_t offset)
     return value;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the sender and the receiver tasks call
-// this in a later change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 esp_err_t bol_frame_encode(const bol_frame_header_t *header, uint8_t *out_frame,
                            size_t frame_bytes)
 {
@@ -162,8 +161,7 @@ esp_err_t bol_frame_encode(const bol_frame_header_t *header, uint8_t *out_frame,
     return ret;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the sender and the receiver tasks call
-// this in a later change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 esp_err_t bol_frame_decode(const uint8_t *frame, size_t frame_bytes,
                            bol_frame_header_t *out_header)
 {
@@ -194,8 +192,7 @@ esp_err_t bol_frame_decode(const uint8_t *frame, size_t frame_bytes,
     return ret;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the sender and the receiver tasks call
-// this in a later change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 bool bol_frame_fill_is_intact(const bol_frame_header_t *header, const uint8_t *frame,
                               size_t frame_bytes)
 {
