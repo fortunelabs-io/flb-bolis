@@ -1,7 +1,7 @@
 # The drift band and the record link of a report
 
 Date: 2026-11-16
-Status: Proposed
+Status: Accepted
 
 ## Context
 
