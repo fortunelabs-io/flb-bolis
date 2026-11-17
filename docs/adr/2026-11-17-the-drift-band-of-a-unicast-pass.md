@@ -1,7 +1,7 @@
 # The drift band of a unicast pass
 
 Date: 2026-11-17
-Status: Proposed
+Status: Accepted (Supersedes [2026-11-16-the-drift-band-and-the-record-link-of-a-report.md](./2026-11-16-the-drift-band-and-the-record-link-of-a-report.md))
 
 ## Context
 
