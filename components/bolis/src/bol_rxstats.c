@@ -32,8 +32,7 @@
 /** @brief The one bit that marks the newest position of the window. */
 #define BOL_RXSTATS_ONE 1ULL
 
-// cppcheck-suppress misra-c2012-8.7 ; the receiver task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 uint32_t bol_rxstats_run_length_bin(uint32_t run_length)
 {
     uint32_t bin = 0U;
@@ -49,8 +48,7 @@ uint32_t bol_rxstats_run_length_bin(uint32_t run_length)
     return bin;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the receiver task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 void bol_rxstats_reset(bol_receiver_counters_t *counters)
 {
     if (counters != NULL) {
@@ -59,8 +57,7 @@ void bol_rxstats_reset(bol_receiver_counters_t *counters)
     }
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the receiver task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 uint32_t bol_rxstats_position(uint32_t message_id, uint8_t fragment_index,
                               uint32_t packets_per_message)
 {
@@ -122,8 +119,7 @@ static bool bol_rxstats_window_holds(const bol_receiver_counters_t *counters,
     return is_held;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the receiver task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 bool bol_rxstats_accept(bol_receiver_counters_t *counters, uint32_t position,
                         int32_t rssi_dbm)
 {
@@ -166,8 +162,7 @@ bool bol_rxstats_accept(bol_receiver_counters_t *counters, uint32_t position,
     return is_new;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the receiver task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 void bol_rxstats_finish(bol_receiver_counters_t *counters, uint32_t positions)
 {
     if (counters != NULL) {
@@ -182,8 +177,7 @@ void bol_rxstats_finish(bol_receiver_counters_t *counters, uint32_t positions)
     }
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the receiver task calls this in a later
-// change, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 bool bol_rxstats_mean_rssi_dbm(const bol_receiver_counters_t *counters,
                                double *out_mean_dbm)
 {

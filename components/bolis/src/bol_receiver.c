@@ -169,8 +169,7 @@ static void bol_receiver_task(void *argument)
     }
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the console calls this when the four
-// commands land, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 esp_err_t bol_receiver_start(void)
 {
     esp_err_t ret = ESP_OK;
@@ -226,8 +225,7 @@ esp_err_t bol_receiver_start(void)
     return ret;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the console calls this when the four
-// commands land, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 esp_err_t bol_receiver_arm(uint32_t run_id, uint16_t cell_id, bol_pass_t pass,
                            uint32_t packets_per_message)
 {
@@ -251,8 +249,7 @@ esp_err_t bol_receiver_arm(uint32_t run_id, uint16_t cell_id, bol_pass_t pass,
     return ret;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the console calls this when the four
-// commands land, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 esp_err_t bol_receiver_finish(uint32_t positions)
 {
     esp_err_t ret = ESP_OK;
@@ -267,8 +264,7 @@ esp_err_t bol_receiver_finish(uint32_t positions)
     return ret;
 }
 
-// cppcheck-suppress misra-c2012-8.7 ; the console calls this when the four
-// commands land, so the module keeps external linkage
+// cppcheck-suppress misra-c2012-8.7 ; another file calls this, and the addon reads one translation unit at a time
 esp_err_t bol_receiver_counters(bol_receiver_counters_t *out_counters)
 {
     esp_err_t ret = ESP_OK;
