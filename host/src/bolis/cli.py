@@ -7,8 +7,8 @@ run <port> <port> [options] sweeps the link and writes one report.
 bolis run --print-plan resolves the baseline, builds the cell plan, prints it,
 and returns 0 (decision 2026-11-10-run-plan-resolution.md). Without that flag,
 bolis run builds the same plan, gives each node its role, runs every cell, and
-writes one run record into the directory that --out names. A run that loses a
-node keeps the cells that ran and states why it stopped.
+writes one run record and one report into the directory that --out names. A run
+that loses a node keeps the cells that ran and states why it stopped.
 
 bolis flash writes the image to both nodes through the esptool Python API,
 then reads the hello reply of each node over the control line transport. That
@@ -110,7 +110,8 @@ class RunArgs:
         plan: One of PLAN_CHOICES.
         mode: One of MODE_CHOICES.
         print_plan: Whether to print the plan and return 0.
-        out: The directory that the host writes the run record into.
+        out: The directory that the host writes the run record and the report
+            into.
         declared_text: The five entries of the declared section, by key. Bolis
             checks none of them.
     """
@@ -616,6 +617,7 @@ def _run_run(parsed: argparse.Namespace) -> int:
         prepare_directory,
         write_record,
     )
+    from bolis.report import write_report  # noqa: PLC0415
 
     # A run that the host cannot record is a run that wasted a bench, so the
     # directory is checked before the first cell
@@ -669,8 +671,12 @@ def _run_run(parsed: argparse.Namespace) -> int:
         "cells": build_cells(entries),
     }
     path = write_record(document, args.out)
+    # The report reads the record that the host just wrote, so a reader of one
+    # holds the other beside it.
+    report = write_report(document, args.out)
 
     print(f"bolis wrote the run record {path}")
+    print(f"bolis wrote the report {report}")
     if not any(args.declared_text.values()):
         print(
             "The declared section is empty. A verification pair needs the "
