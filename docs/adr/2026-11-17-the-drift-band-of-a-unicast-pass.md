@@ -9,7 +9,7 @@ The record [2026-11-16-the-drift-band-and-the-record-link-of-a-report.md](./2026
 
 That record was written while the report builder was being read against the broadcast pass, where `first_attempt_loss` is the quantity of every cell. It did not check the unicast pass.
 
-The accepted record [2026-11-13-loss-quantities-in-a-cell.md](./2026-11-13-loss-quantities-in-a-cell.md) states which quantity each pass holds. A broadcast pass states `first_attempt_loss`. A unicast pass states `post_retry_loss`. Both state `message_loss`. A unicast pass therefore holds no `first_attempt_loss` at all, and `_loss_sections` in `host/src/bolis/orchestrator.py` writes none.
+The accepted record [2026-11-13-loss-quantities-in-a-cell.md](./2026-11-13-loss-quantities-in-a-cell.md) states which quantity each pass holds. A broadcast pass states `first_attempt_loss`. A unicast pass states `post_retry_loss`. Both state `message_loss`. A unicast pass therefore holds no `first_attempt_loss`, and `_loss_sections` in `host/src/bolis/orchestrator.py` writes none.
 
 Read together, the two records give every unicast pass a drift band of 0, because no baseline cell of that pass holds the quantity that the band reads. The band does not fail and it raises no error. It silently becomes 0.
 
