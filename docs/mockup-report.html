@@ -8,8 +8,11 @@ h3 { font-size: 1rem; margin-bottom: 0.25rem; }
 table { border-collapse: collapse; width: 100%; }
 th, td { border-bottom: 1px solid #8884; padding: 0.3rem 0.4rem;
          text-align: left; vertical-align: top; }
+td { overflow-wrap: anywhere; }
 .n { white-space: nowrap; }
-.lbl { font-size: 0.75em; margin-left: 0.25rem; text-decoration: none; }
+.lbl { font-size: 0.75em; margin-left: 0.25rem; text-decoration: none;
+       color: inherit; opacity: 0.65; }
+a.lbl:hover, a.lbl:focus { text-decoration: underline; opacity: 1; }
 .chart, .hist { width: 100%; height: auto; }
 .axis { stroke: currentColor; stroke-width: 1; }
 .tick, .axis-title { fill: currentColor; font-size: 11px; }

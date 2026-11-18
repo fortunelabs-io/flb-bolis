@@ -83,6 +83,10 @@ _CHART_RIGHT = 16
 _CHART_TOP = 16
 _CHART_BOTTOM = 44
 
+# A histogram carries the width of a chart, so one font size renders at the
+# same height on both. A viewBox narrower than a chart scales its text up.
+_HISTOGRAM_HEIGHT = 160
+
 
 class BolisReportError(BolisError):
     """Raised when a run record does not carry what a report needs."""
@@ -465,8 +469,8 @@ def _histogram(counts: Sequence[Any], title: str) -> str:
     """Draws one histogram of BOL_HISTOGRAM_BINS bins as inline SVG."""
     values = [float(count) for count in counts]
     top = max(values, default=0.0) or 1.0
-    width = 320
-    height = 110
+    width = _CHART_WIDTH
+    height = _HISTOGRAM_HEIGHT
     bar = width / float(max(len(values), 1))
     parts = [
         f'<svg class="hist" viewBox="0 0 {width} {height}" role="img" '
@@ -496,8 +500,11 @@ h3 { font-size: 1rem; margin-bottom: 0.25rem; }
 table { border-collapse: collapse; width: 100%; }
 th, td { border-bottom: 1px solid #8884; padding: 0.3rem 0.4rem;
          text-align: left; vertical-align: top; }
+td { overflow-wrap: anywhere; }
 .n { white-space: nowrap; }
-.lbl { font-size: 0.75em; margin-left: 0.25rem; text-decoration: none; }
+.lbl { font-size: 0.75em; margin-left: 0.25rem; text-decoration: none;
+       color: inherit; opacity: 0.65; }
+a.lbl:hover, a.lbl:focus { text-decoration: underline; opacity: 1; }
 .chart, .hist { width: 100%; height: auto; }
 .axis { stroke: currentColor; stroke-width: 1; }
 .tick, .axis-title { fill: currentColor; font-size: 11px; }
@@ -550,9 +557,11 @@ def _condition_rows(
         ("Baseline source", _text(setup["baseline_source"])),
     ]
     for name in VARIABLES:
+        # Only the first letter falls, so a unit such as dBm keeps its case.
+        title = VARIABLE_TITLES[name]
         rows.append(
             (
-                f"Baseline {VARIABLE_TITLES[name].lower()}",
+                f"Baseline {title[:1].lower()}{title[1:]}",
                 labelled(
                     setup["baseline"][name],
                     f"/setup/baseline/{name}/value",
@@ -707,10 +716,9 @@ def _histograms(cells: Sequence[Mapping[str, Any]], record_name: str) -> str:
             f"#{_text(f'/cells/{index}/sender/send_to_callback_us_histogram/value')}"
         )
         sections.append(
-            f"<h3>Cell {_text(cell['cell_id'])}</h3>"
+            f"<h3>Cell {_text(cell['cell_id'])}"
+            f'<a class="lbl" href="{href}">[{_text(entry.get("label", ""))}]</a></h3>'
             + _histogram(counts, f"Send-to-callback time of cell {cell['cell_id']}")
-            + f'<p><a class="lbl" href="{href}">[{_text(entry.get("label", ""))}]</a>'
-            "</p>"
         )
     if not sections:
         return ""
