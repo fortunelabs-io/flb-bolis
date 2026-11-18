@@ -276,12 +276,68 @@ def test_the_report_states_the_legend_of_the_four_labels() -> None:
         assert f"[{label}]" in page
 
 
-def test_the_report_links_every_number_to_the_record() -> None:
-    """A number carries the JSON Pointer of the key that states it."""
+def test_the_report_links_a_number_to_the_key_that_states_it() -> None:
+    """A number that one key states carries the JSON Pointer of that key."""
     page = render(record(), RECORD_NAME)
 
     assert f'href="{RECORD_NAME}#/run/seed/value"' in page
     assert f'href="{RECORD_NAME}#/setup/phy_rate_mbps/value"' in page
+
+
+def test_the_drift_band_carries_its_origin_label() -> None:
+    """The drift band is a number of the page, so it carries a label.
+
+    No key of the record states the band, because the report reads the
+    baseline repeats to reach it. The band therefore carries its label and no
+    link (decision 2026-10-01-number-origin-labels.md).
+    """
+    cells = [
+        cell(0, loss=loss_at(0.0100, 0.0070, 0.0140)),
+        cell(1, loss=loss_at(0.0200, 0.0160, 0.0250)),
+    ]
+    page = render(document_with(cells), RECORD_NAME)
+
+    assert '0.0100<span class="lbl">[derived]</span>' in page
+
+
+def test_the_baseline_loss_range_links_to_the_cells_that_state_it() -> None:
+    """The ends of the baseline range are ratios that two cells state."""
+    cells = [
+        cell(0, loss=loss_at(0.0100, 0.0070, 0.0140)),
+        cell(1, loss=loss_at(0.0200, 0.0160, 0.0250)),
+    ]
+    page = render(document_with(cells), RECORD_NAME)
+
+    low = f'href="{RECORD_NAME}#/cells/0/first_attempt_loss/ratio/value"'
+    high = f'href="{RECORD_NAME}#/cells/1/first_attempt_loss/ratio/value"'
+    assert low in page
+    assert high in page
+
+
+def test_every_loss_ratio_of_the_paragraph_carries_a_label() -> None:
+    """No ratio reaches the paragraph as bare text.
+
+    A reader of a report reads the origin of every quantity, so a ratio that
+    carries no label would state a measurement that nobody can trace.
+    """
+    cells = [
+        cell(0, loss=loss_at(0.0100, 0.0070, 0.0140)),
+        cell(1, loss=loss_at(0.0200, 0.0160, 0.0250)),
+        cell(2, channel=SWEPT_CHANNEL_LOW, loss=loss_at(0.3000, 0.2800, 0.3200)),
+        cell(3, channel=SWEPT_CHANNEL_HIGH, loss=loss_at(0.0050, 0.0030, 0.0080)),
+    ]
+    page = render(document_with(cells), RECORD_NAME)
+    start = page.index("<h2>What moved loss</h2>")
+    end = page.index("<h2>", start + 1)
+    paragraph = page[start:end]
+
+    assert "<li>" in paragraph, "the case did not reach the list of variables"
+    for match in re.finditer(r"\d+\.\d{4}", paragraph):
+        rest = paragraph[match.end() :]
+        carries = rest.startswith('<span class="lbl">') or rest.startswith(
+            '<a class="lbl"'
+        )
+        assert carries, f"the ratio {match.group()} carries no origin label"
 
 
 def test_the_report_escapes_the_text_that_the_user_typed() -> None:

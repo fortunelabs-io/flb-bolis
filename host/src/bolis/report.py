@@ -159,6 +159,27 @@ def labelled(entry: Mapping[str, Any], pointer: str, record_name: str) -> str:
     )
 
 
+def labelled_no_link(value: float, label: str) -> str:
+    """Renders one labelled number that no single key of the record states.
+
+    The report reads several keys to reach this number, so no JSON Pointer
+    names it and the number carries its origin label alone. A number that one
+    key states carries a link as well, through `labelled`.
+
+    Args:
+        value: The number to render.
+        label: The origin label of the number, one of the four of decision
+            2026-10-01-number-origin-labels.md.
+
+    Returns:
+        The number and its label.
+    """
+    return (
+        f'<span class="n">{_text(_digits(value))}'
+        f'<span class="lbl">[{_text(label)}]</span></span>'
+    )
+
+
 def cell_variable(
     condition: Mapping[str, Any], baseline: Mapping[str, Any]
 ) -> str | None:
@@ -195,15 +216,43 @@ def _pass_cells(
     ]
 
 
+def baseline_points(
+    cells: Sequence[Mapping[str, Any]],
+    baseline: Mapping[str, Any],
+    pass_name: str,
+) -> list[tuple[int, float]]:
+    """Returns the cell and the loss ratio of each baseline repeat of one pass.
+
+    The ratios come from the loss quantity that the pass states, which the
+    drift band of that pass reads. The cell of each ratio names the key of the
+    record that states it, so a report links the ratio to that key.
+
+    Args:
+        cells: The cells section of the record.
+        baseline: The baseline condition of the run.
+        pass_name: The pass, broadcast or unicast.
+
+    Returns:
+        One pair of cell and ratio per valid baseline cell of that pass that
+        states the quantity.
+    """
+    quantity = PASS_QUANTITY[pass_name]
+    points: list[tuple[int, float]] = []
+    for index, cell in _pass_cells(cells, pass_name):
+        if cell_variable(cell["condition"], baseline) != BASELINE:
+            continue
+        loss = cell.get(quantity)
+        if isinstance(loss, Mapping):
+            points.append((index, _value(loss["ratio"])))
+    return points
+
+
 def baseline_ratios(
     cells: Sequence[Mapping[str, Any]],
     baseline: Mapping[str, Any],
     pass_name: str,
 ) -> list[float]:
     """Returns the loss ratios of the baseline repeats of one pass.
-
-    The ratios come from the loss quantity that the pass states, which the
-    drift band of that pass reads.
 
     Args:
         cells: The cells section of the record.
@@ -214,15 +263,7 @@ def baseline_ratios(
         One ratio per valid baseline cell of that pass that states the
         quantity.
     """
-    quantity = PASS_QUANTITY[pass_name]
-    ratios: list[float] = []
-    for _index, cell in _pass_cells(cells, pass_name):
-        if cell_variable(cell["condition"], baseline) != BASELINE:
-            continue
-        loss = cell.get(quantity)
-        if isinstance(loss, Mapping):
-            ratios.append(_value(loss["ratio"]))
-    return ratios
+    return [ratio for _index, ratio in baseline_points(cells, baseline, pass_name)]
 
 
 def drift_band(
@@ -548,17 +589,30 @@ def _paragraph(
     band = drift_band(cells, baseline, pass_name)
     moved = moved_loss(cells, baseline, pass_name)
     quantity = QUANTITY_TITLES[PASS_QUANTITY[pass_name]]
-    ratios = baseline_ratios(cells, baseline, pass_name)
+    quantity_key = PASS_QUANTITY[pass_name]
+    points = baseline_points(cells, baseline, pass_name)
 
     lines = [
         f"<h3>The {_text(pass_name)} pass</h3>",
-        f"<p>The drift band of this pass is {_text(_digits(band))} of "
-        f"{_text(quantity)}, from {len(ratios)} baseline cells.</p>",
+        f"<p>The drift band of this pass is "
+        f"{labelled_no_link(band, 'derived')} of {_text(quantity)}, from "
+        f"{len(points)} baseline cells.</p>",
     ]
-    if ratios:
+    if points:
+        low_cell, low_ratio = min(points, key=lambda point: point[1])
+        high_cell, high_ratio = max(points, key=lambda point: point[1])
+        lowest = labelled(
+            {"value": low_ratio, "label": "derived"},
+            f"/cells/{low_cell}/{quantity_key}/ratio/value",
+            record_name,
+        )
+        highest = labelled(
+            {"value": high_ratio, "label": "derived"},
+            f"/cells/{high_cell}/{quantity_key}/ratio/value",
+            record_name,
+        )
         lines.append(
-            f"<p>The baseline loss of this pass runs from "
-            f"{_text(_digits(min(ratios)))} to {_text(_digits(max(ratios)))}.</p>"
+            f"<p>The baseline loss of this pass runs from {lowest} to {highest}.</p>"
         )
     if not moved:
         lines.append(
@@ -568,7 +622,6 @@ def _paragraph(
         )
         return "".join(lines)
 
-    quantity_key = PASS_QUANTITY[pass_name]
     items = []
     for entry in moved:
         variable = entry["variable"]
