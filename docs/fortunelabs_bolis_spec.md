@@ -93,7 +93,7 @@ Bolis is a bench tool for ESP-NOW. It consists of firmware for two ESP32 nodes a
 - Field installation. v0 does not diagnose a link at a customer site.
 - A dashboard and automatic diagnosis.
 
-**Claim limit.** The report answers one question: how does my configuration behave under controlled conditions. It does not claim to explain a failure in the field. The documentation and every report state this sentence. Every report also states three limits: its results apply to 1 Mbps, its conclusions hold at its baseline, and its sweep does not test interactions.
+**Claim limit.** This report states how one configuration behaves under controlled conditions. The documentation and every report state this sentence. Every report also states three limits: its results apply to 1 Mbps, its conclusions hold at its baseline, and its sweep does not test interactions.
 
 ---
 

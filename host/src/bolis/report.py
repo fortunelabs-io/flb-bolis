@@ -17,10 +17,11 @@ from typing import Any
 
 from bolis import BolisError
 
-# The claim limit of specification section 4. Every report states it.
+# The claim limit of specification section 4. Every report states it. The
+# sentence states the scope of a run. The three limits below state what the
+# scope rules out, so the claim limit states no negative of its own.
 CLAIM_LIMIT = (
-    "The report answers one question: how does my configuration behave under "
-    "controlled conditions. It does not claim to explain a failure in the field."
+    "This report states how one configuration behaves under controlled conditions."
 )
 
 # The three limits that every report states (specification section 4).
