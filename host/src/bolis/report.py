@@ -594,9 +594,8 @@ def _paragraph(
 
     lines = [
         f"<h3>The {_text(pass_name)} pass</h3>",
-        f"<p>The drift band of this pass is "
-        f"{labelled_no_link(band, 'derived')} of {_text(quantity)}, from "
-        f"{len(points)} baseline cells.</p>",
+        f"<p>The drift band is {labelled_no_link(band, 'derived')} of "
+        f"{_text(quantity)}, from {len(points)} baseline cells.</p>",
     ]
     if points:
         low_cell, low_ratio = min(points, key=lambda point: point[1])
@@ -611,15 +610,9 @@ def _paragraph(
             f"/cells/{high_cell}/{quantity_key}/ratio/value",
             record_name,
         )
-        lines.append(
-            f"<p>The baseline loss of this pass runs from {lowest} to {highest}.</p>"
-        )
+        lines.append(f"<p>The baseline loss runs from {lowest} to {highest}.</p>")
     if not moved:
-        lines.append(
-            "<p>No variable moved loss on this pass. Two cells of a variable "
-            "move loss when their Wilson intervals do not overlap and their "
-            "difference exceeds the drift band.</p>"
-        )
+        lines.append("<p>No variable moved loss on this pass.</p>")
         return "".join(lines)
 
     items = []
@@ -632,13 +625,12 @@ def _paragraph(
             shown = labelled(
                 {"value": point["ratio"], "label": "derived"}, pointer, record_name
             )
-            parts.append(f"the cell at {_text(_digits(point['x']))} states {shown}")
+            parts.append(f"{_text(_digits(point['x']))} states {shown}")
         items.append(
             f"<li>{_text(VARIABLE_TITLES[variable])}: " + " and ".join(parts) + ".</li>"
         )
     lines.append(
-        "<p>These variables moved loss on this pass. The report states no "
-        "cause.</p><ul>" + "".join(items) + "</ul>"
+        "<p>These variables moved loss on this pass.</p><ul>" + "".join(items) + "</ul>"
     )
     return "".join(lines)
 
@@ -682,15 +674,10 @@ def _charts(
                 point for point in message_points if point["x"] > payload_limit_bytes
             ]
             if extra:
-                note = (
-                    "<p>The open squares state message loss, which a payload "
-                    "above the packet payload limit splits across several "
-                    "packets.</p>"
-                )
+                note = "<p>The open squares state message loss.</p>"
         sections.append(
             f"<h3>{_text(VARIABLE_TITLES[variable])}</h3>"
-            f"<p>{_text(pass_name)} pass, {_text(QUANTITY_TITLES[quantity])}. "
-            f"The shaded range is the drift band.</p>"
+            f"<p>{_text(pass_name)} pass, {_text(QUANTITY_TITLES[quantity])}.</p>"
             + _chart(VARIABLE_TITLES[variable], points, band_low, band_high, extra)
             + note
         )
@@ -699,7 +686,7 @@ def _charts(
             f"<p>This run states no cell of a swept variable on the "
             f"{_text(pass_name)} pass.</p>"
         )
-    return "".join(sections)
+    return "<p>The shaded range is the drift band.</p>" + "".join(sections)
 
 
 def _histograms(cells: Sequence[Mapping[str, Any]], record_name: str) -> str:
@@ -761,8 +748,7 @@ def render(document: Mapping[str, Any], record_name: str) -> str:
     if run.get("status") != "complete":
         stopped = (
             f'<p class="note">This run stopped before the end of its plan. '
-            f"The report states the cells that ran. Reason: "
-            f"{_text(run.get('stopped_reason', 'none stated'))}</p>"
+            f"Reason: {_text(run.get('stopped_reason', 'none stated'))}</p>"
         )
 
     body = [
@@ -804,8 +790,7 @@ def render(document: Mapping[str, Any], record_name: str) -> str:
             for name, meaning in LABEL_LEGEND
         )
         + "</dl>"
-        f'<p>Every number above links to the key of <a href="{_text(record_name)}">'
-        f"{_text(record_name)}</a> that states it.</p>"
+        f'<p>Run record: <a href="{_text(record_name)}">{_text(record_name)}</a></p>'
     )
 
     return (

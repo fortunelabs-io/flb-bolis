@@ -385,9 +385,16 @@ def test_the_report_names_the_variables_that_moved_loss() -> None:
     )
 
     page = render(document, RECORD_NAME)
+    start = page.index("<h2>What moved loss</h2>")
+    paragraph = page[start : page.index("<h2>", start + 1)]
 
-    assert "Channel" in page
-    assert "The report states no cause" in page
+    assert "Channel" in paragraph
+    assert "0.0040" in paragraph
+    assert "0.0200" in paragraph
+    # The paragraph names what moved and leaves the cause to the reader, so no
+    # word of cause reaches it (specification section 6).
+    for cause in ("because", "due to", "caused", "explains", "reason"):
+        assert cause not in paragraph.lower()
 
 
 def test_the_report_states_when_no_variable_moved_loss() -> None:
