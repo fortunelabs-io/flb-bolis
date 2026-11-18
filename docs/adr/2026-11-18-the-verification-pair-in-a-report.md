@@ -13,6 +13,8 @@ Record `2026-10-01-reproducibility-verification.md` defined the pass test of a p
 
 The same record put the mockup of the repository, not the report of a run, under the failure case. Specification section 6 repeated that rule. So the report carried no obligation to judge a pair, and it also carried no statement that a pair exists.
 
+The mockup stopped being an idea while this record was a draft. `host/src/bolis/mockup.py` and `docs/mockup-report.html` reused the text and the style of `bolis.report`, so the mockup could not drift from the report that a run writes. The mockup stated the definition of a pair and the pass test in its own closing banner, which states what replaces the page. Its Coverage and limits section held the three limits of specification section 4 and named no pair. The mockup linked to no record, because no run produced it. A statement of the pair in a report therefore reaches two pages, and only one of them can carry a link.
+
 If nothing was decided, a report would stay silent about the pair. A reader who holds a report and not the record would not learn that a second run completes the result, and the next change to the builder would settle the question by accident.
 
 ## Alternatives considered
@@ -47,4 +49,7 @@ If nothing was decided, a report would stay silent about the pair. A reader who 
 - The pair run ID carries no origin label, which keeps the legend of the four labels to the quantities of a run.
 - The link names a key of this record, so it resolves whenever the report and its record sit together.
 - A reader who wants to check a pair finds the other record by its run ID and not by a link.
+- The mockup reuses the text of a report, so a statement of the pair reaches the mockup as a placeholder.
+- The placeholder of the mockup carries no record link, because no run produced that page.
+- The mockup states the pair twice, once as a placeholder in Coverage and limits and once in the banner that states what replaces the page.
 - Watch a report whose pair run ID names a run whose record the user no longer holds. The report states the ID, and the reader cannot reach the second half of the test.
