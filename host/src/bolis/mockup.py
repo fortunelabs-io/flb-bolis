@@ -43,8 +43,7 @@ PLACEHOLDER = "<placeholder>"
 # The sentence that specification section 6 requires of the page.
 MOCKUP_NOTICE = (
     "This page is a mockup. No run produced it, and it states no measurement. "
-    "Every value below is a placeholder in angle brackets, beside the origin "
-    "label that the value carries once a run produces it."
+    "Every value below is a placeholder beside its origin label."
 )
 
 # What replaces the mockup, from specification section 6 and decision record
@@ -161,9 +160,7 @@ def render_mockup() -> str:
     )
     charts = "".join(
         f"<h3>{_text(title)}</h3>"
-        f"<p>&lt;pass&gt; pass, &lt;loss quantity&gt;. A report draws one point "
-        f"per cell here, with the Wilson interval of each point, and it shades "
-        f"the drift band across the chart.</p>" + _empty_chart(title)
+        f"<p>&lt;pass&gt; pass, &lt;loss quantity&gt;.</p>" + _empty_chart(title)
         for title in VARIABLE_TITLES.values()
     )
     legend = "".join(
@@ -186,19 +183,18 @@ def render_mockup() -> str:
         f"{placeholder('configured')}.</p>"
         f"<h2>Test condition</h2><table>{condition}</table>"
         f"<h2>Declared geometry</h2><table>{declared}</table>"
-        f"<h2>Loss by variable</h2>{charts}"
+        "<h2>Loss by variable</h2>"
+        "<p>The shaded range is the drift band.</p>"
+        f"{charts}"
         "<h2>What moved loss</h2>"
-        "<p>The drift band of this pass is "
+        "<p>The drift band is "
         f"{placeholder('derived')} of &lt;loss quantity&gt;, from &lt;count&gt; "
         "baseline cells.</p>"
-        "<p>A report names here the variables whose cells hold Wilson intervals "
-        "that do not overlap and whose difference exceeds the drift band. It "
-        "names the variable, the two cells, and their values, and it states no "
-        "cause.</p>"
+        "<p>A report names here the variables that moved loss, with the two "
+        "cells of each one and their values.</p>"
         f'<h2>Coverage and limits</h2><ul class="limits">{limits}</ul>'
         f'<h2>Origin labels</h2><dl class="legend">{legend}</dl>'
-        "<p>Every value of a report links to the key of the run record that "
-        "states it. This page links to no record, because no run produced it.</p>"
+        "<p>This page links to no record.</p>"
         f'<div class="mockup"><strong>What replaces this page</strong>'
         f"{_text(MOCKUP_REPLACEMENT)}</div>"
         "</body></html>\n"
