@@ -44,8 +44,8 @@ VARIABLES = ("channel", "power_set_value", "payload_bytes")
 # The heading of the chart of each variable, with the unit of its axis.
 VARIABLE_TITLES = {
     "channel": "Channel",
-    "power_set_value": "Transmit power, in units of 0.25 dBm",
-    "payload_bytes": "Payload size, in bytes",
+    "power_set_value": "Transmit power (units of 0.25 dBm)",
+    "payload_bytes": "Payload size (bytes)",
 }
 
 # The loss quantity that each pass states (decision
@@ -142,6 +142,20 @@ def _digits(value: float) -> str:
     if float(value).is_integer():
         return str(int(value))
     return f"{value:.4f}"
+
+
+def _sentence_case(text: str) -> str:
+    """Raises the first letter of one phrase and leaves the rest alone.
+
+    A unit such as dBm keeps its case, because only the first letter moves.
+
+    Args:
+        text: The phrase to raise.
+
+    Returns:
+        The phrase with its first letter in upper case.
+    """
+    return f"{text[:1].upper()}{text[1:]}"
 
 
 def labelled(entry: Mapping[str, Any], pointer: str, record_name: str) -> str:
@@ -539,7 +553,7 @@ def _condition_rows(
             ),
         ),
         (
-            "Packet payload limit, in bytes",
+            "Packet payload limit (bytes)",
             labelled(
                 firmware["payload_limit_bytes"],
                 "/firmware/payload_limit_bytes/value",
@@ -547,7 +561,7 @@ def _condition_rows(
             ),
         ),
         (
-            "PHY rate, in Mbps",
+            "PHY rate (Mbps)",
             labelled(setup["phy_rate_mbps"], "/setup/phy_rate_mbps/value", record_name),
         ),
         ("Country code", _text(setup["country_code"])),
@@ -686,7 +700,7 @@ def _charts(
                 note = "<p>The open squares state message loss.</p>"
         sections.append(
             f"<h3>{_text(VARIABLE_TITLES[variable])}</h3>"
-            f"<p>{_text(pass_name)} pass, {_text(QUANTITY_TITLES[quantity])}.</p>"
+            f"<p>{_text(_sentence_case(QUANTITY_TITLES[quantity]))}.</p>"
             + _chart(VARIABLE_TITLES[variable], points, band_low, band_high, extra)
             + note
         )
@@ -723,8 +737,8 @@ def _histograms(cells: Sequence[Mapping[str, Any]], record_name: str) -> str:
     if not sections:
         return ""
     return (
-        "<h2>Send-to-callback time</h2><p>One histogram per unicast pass. Each "
-        "holds 16 bins on a doubling scale.</p>" + "".join(sections)
+        "<h2>Send-to-callback time</h2><p>One histogram per unicast pass. The "
+        "16 bins double in width.</p>" + "".join(sections)
     )
 
 
@@ -777,7 +791,7 @@ def render(document: Mapping[str, Any], record_name: str) -> str:
 
     payload_limit_bytes = _value(document["firmware"]["payload_limit_bytes"])
     for pass_name in passes:
-        body.append(f"<h2>Loss by variable, {_text(pass_name)} pass</h2>")
+        body.append(f"<h2>Loss by variable in {_text(pass_name)} pass</h2>")
         body.append(_charts(cells, setup, pass_name, payload_limit_bytes))
 
     body.append("<h2>What moved loss</h2>")

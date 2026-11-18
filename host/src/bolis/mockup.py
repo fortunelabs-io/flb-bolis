@@ -62,16 +62,16 @@ CONDITION_ROWS = (
     ("ELF SHA-256", None),
     ("ESP-IDF version", None),
     ("ESP-NOW version", "measured"),
-    ("Packet payload limit, in bytes", "measured"),
-    ("PHY rate, in Mbps", "configured"),
+    ("Packet payload limit (bytes)", "measured"),
+    ("PHY rate (Mbps)", "configured"),
     ("Country code", None),
     ("Run mode", None),
     ("Power save", None),
     ("Bluetooth controller", None),
     ("Baseline source", None),
     ("Baseline channel", "configured"),
-    ("Baseline transmit power, in units of 0.25 dBm", "configured"),
-    ("Baseline payload size, in bytes", "configured"),
+    ("Baseline transmit power (units of 0.25 dBm)", "configured"),
+    ("Baseline payload size (bytes)", "configured"),
 )
 
 # The five entries of the declared section of thinkbook section 9.
