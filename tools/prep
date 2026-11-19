@@ -6,9 +6,9 @@
 # command it runs, writes a log, and ends with one verdict line. The summary at the
 # end names the verdict, the duration, and the log of every stage of the run.
 #
-# The stages cover readiness, the build, the test cases, and the measurements. They
-# run no layout, MISRA, CERT, or Doxygen check. Those checks belong to
-# skills/c-compliance-check and to the Checks workflow.
+# The stages cover readiness, the lint checks, the build, the test cases, and the
+# measurements. They run no astyle_py, MISRA, CERT, or Doxygen check. Those checks
+# belong to skills/c-compliance-check and to the Checks workflow.
 set -euo pipefail
 
 readonly BOL_SELF="${0##*/}"
@@ -52,8 +52,50 @@ readonly BOL_TEST_MODULES=(
 # pytest nor mypy (host/README.md).
 readonly BOL_HOST_DIR="host"
 readonly BOL_HOST_VENV_PY="${BOL_HOST_DIR}/.venv/bin/python3"
+# mise pins no mypy. The dev extra of host/pyproject.toml carries it, so the lint
+# stage reads it from the same environment that supplies pytest.
+readonly BOL_HOST_VENV_MYPY="${BOL_HOST_DIR}/.venv/bin/mypy"
+readonly BOL_HOST_PACKAGE="src/bolis"
 
-readonly BOL_STAGES=(preflight build test measure)
+# Every shell script of the repository. A new script adds one entry here, because a
+# find over the tree would also reach a script of a build directory.
+readonly BOL_SHELL_SRCS=(
+    "tools/prep"
+)
+
+# One row per stage, in the order that "all" runs them, as "name|description". The
+# usage text, the --list view, and BOL_STAGES all read this table, so the order of a
+# stage and the sentence that describes it live in one place. mise.toml carries the
+# same sentence as the description of the task of that stage.
+readonly BOL_STAGE_DOC=(
+    "preflight|Report whether every later stage can run. Change nothing."
+    "lint|Check the host package with ruff and mypy, then the scripts."
+    "build|Build the bench example and the reader test app with idf.py."
+    "test|Run the C reader cases on the host, then the host package pytest cases."
+    "measure|Report the size of each image and the duration of each stage."
+)
+
+# The stage names, in the order of the table above.
+BOL_STAGES=()
+for bol_row in "${BOL_STAGE_DOC[@]}"; do
+    BOL_STAGES+=("${bol_row%%|*}")
+done
+unset bol_row
+readonly BOL_STAGES
+
+# The mise tasks that call a checker and run no stage, as "name|effect|description".
+# "mise run all" calls none of them. The --list view names them, and it compares this
+# table with the tasks that mise reports, so a task that no one adds here appears as
+# a difference rather than staying out of sight.
+readonly BOL_CHECKER_DOC=(
+    "lint-python|reads only|Check the host package with ruff and mypy."
+    "lint-shell|reads only|Check every shell script with ShellCheck."
+    "fix-python|WRITES FILES|Apply the ruff fixes and the ruff layout."
+)
+
+# The task that prints the view. The cross-check expects it alongside the stages,
+# the checkers, and "all".
+readonly BOL_VIEW_TASK="list"
 
 # A stage reports its result through an exit code.
 readonly BOL_PASS=0
@@ -268,6 +310,30 @@ stage_preflight() {
             "${BOL_HOST_VENV_PY} is absent. Run: python3 -m venv ${BOL_HOST_DIR}/.venv && ${BOL_HOST_VENV_PY} -m pip install -e '${BOL_HOST_DIR}[dev]'"
     fi
 
+    # The three checkers of the lint stage. That stage fails rather than skips when a
+    # checker is absent, so each one is a requirement and not a warning here.
+    if command -v ruff >/dev/null 2>&1; then
+        check_ok "ruff" "$(ruff --version 2>/dev/null)"
+    else
+        check_fail "ruff" "absent from PATH. mise.toml pins it. Run: mise install"
+    fi
+
+    # The version output of ShellCheck opens with a banner and puts the number on a
+    # line of its own, so the row reads that line rather than the first one. A comment
+    # that opens with the name of the tool would parse as a ShellCheck directive.
+    if command -v shellcheck >/dev/null 2>&1; then
+        check_ok "shellcheck" "$(shellcheck --version 2>/dev/null | sed -n 's/^version: //p')"
+    else
+        check_fail "shellcheck" "absent from PATH. mise.toml pins it. Run: mise install"
+    fi
+
+    if [ -x "${BOL_ROOT}/${BOL_HOST_VENV_MYPY}" ]; then
+        check_ok "mypy" "${BOL_HOST_VENV_MYPY}"
+    else
+        check_fail "mypy" \
+            "${BOL_HOST_VENV_MYPY} is absent. Run: ${BOL_HOST_VENV_PY} -m pip install -e '${BOL_HOST_DIR}[dev]'"
+    fi
+
     # The tools that mise.toml pins. A stage that needs one of them reports its own
     # absence, and no stage needs every pinned tool, so an absent tool is a warning.
     if [ ! -f "${BOL_ROOT}/mise.toml" ]; then
@@ -320,6 +386,122 @@ stage_preflight() {
     fi
 
     note "${ready} ready, ${warned} warning(s)"
+    return "${BOL_PASS}"
+}
+
+# ---------------------------------------------------------------------------
+# Stage: lint
+# ---------------------------------------------------------------------------
+
+# Checks the host package with ruff and mypy. The part changes no file: the layout
+# command runs with --check, which reports a difference and writes nothing. Run
+# "mise run fix-python" to apply the fixes and the layout.
+#
+# An absent checker fails this part rather than skipping it. mise.toml pins ruff and
+# the dev extra of host/pyproject.toml carries mypy, so an absent checker means an
+# unprepared machine. A skip would end the run with exit code 0, which reads as a
+# check that found nothing rather than a check that never ran.
+#
+# The three commands run from the host directory, because each one reads its
+# configuration from host/pyproject.toml. The part runs all three before it reports,
+# so one finding does not hide another.
+stage_lint_python() {
+    if ! command -v ruff >/dev/null 2>&1; then
+        BOL_LINT_PY_NOTE="ruff is absent from PATH"
+        say "mise.toml pins ruff. Run: mise install"
+        return "${BOL_FAIL}"
+    fi
+
+    local mypy="${BOL_ROOT}/${BOL_HOST_VENV_MYPY}"
+    if [ ! -x "${mypy}" ]; then
+        BOL_LINT_PY_NOTE="${BOL_HOST_VENV_MYPY} is absent"
+        say "The stage reads mypy from host/.venv, and it found no such program."
+        say "Run: ${BOL_HOST_VENV_PY} -m pip install -e '${BOL_HOST_DIR}[dev]'"
+        return "${BOL_FAIL}"
+    fi
+
+    local host_path="${BOL_ROOT}/${BOL_HOST_DIR}"
+    local failed=0
+
+    step "cd ${BOL_HOST_DIR} && ruff check ."
+    if ! (cd -- "${host_path}" && ruff check .); then
+        failed=$((failed + 1))
+    fi
+    printf '\n'
+
+    step "cd ${BOL_HOST_DIR} && ruff format --check ."
+    if ! (cd -- "${host_path}" && ruff format --check .); then
+        failed=$((failed + 1))
+    fi
+    printf '\n'
+
+    # The line names the program by its path inside the host directory, because a
+    # bare mypy is the resolution that this part avoids.
+    step "cd ${BOL_HOST_DIR} && ${BOL_HOST_VENV_MYPY#"${BOL_HOST_DIR}/"} --strict ${BOL_HOST_PACKAGE}"
+    if ! (cd -- "${host_path}" && "${mypy}" --strict "${BOL_HOST_PACKAGE}"); then
+        failed=$((failed + 1))
+    fi
+
+    if [ "${failed}" -gt 0 ]; then
+        BOL_LINT_PY_NOTE="Python: ${failed} of 3 commands reported a finding"
+        return "${BOL_FAIL}"
+    fi
+
+    BOL_LINT_PY_NOTE="Python: ruff and mypy reported no finding"
+    return "${BOL_PASS}"
+}
+
+# Checks every shell script of the repository with ShellCheck. Every script stays free
+# of findings, and the Checks workflow applies that rule with the same version of
+# ShellCheck that mise.toml pins.
+stage_lint_shell() {
+    if ! command -v shellcheck >/dev/null 2>&1; then
+        BOL_LINT_SH_NOTE="shellcheck is absent from PATH"
+        say "mise.toml pins shellcheck. Run: mise install"
+        return "${BOL_FAIL}"
+    fi
+
+    step "shellcheck ${BOL_SHELL_SRCS[*]}"
+    if ! shellcheck "${BOL_SHELL_SRCS[@]}"; then
+        BOL_LINT_SH_NOTE="shell: ShellCheck reported a finding"
+        return "${BOL_FAIL}"
+    fi
+
+    say "${#BOL_SHELL_SRCS[@]} script(s) free of findings"
+    BOL_LINT_SH_NOTE="shell: ${#BOL_SHELL_SRCS[@]} script(s) free of findings"
+    return "${BOL_PASS}"
+}
+
+# Runs the host package checkers, then ShellCheck, and combines the two into one
+# verdict. Either part failing fails the stage. Neither part skips, so the stage
+# reports PASS or FAIL and nothing else.
+stage_lint() {
+    local rc_py rc_sh
+    BOL_LINT_PY_NOTE=""
+    BOL_LINT_SH_NOTE=""
+
+    say "Host package, with ruff and mypy."
+    printf '\n'
+    if stage_lint_python; then
+        rc_py="${BOL_PASS}"
+    else
+        rc_py=$?
+    fi
+
+    printf '\n'
+    say "Shell scripts, with ShellCheck."
+    printf '\n'
+    if stage_lint_shell; then
+        rc_sh="${BOL_PASS}"
+    else
+        rc_sh=$?
+    fi
+
+    note "${BOL_LINT_PY_NOTE}; ${BOL_LINT_SH_NOTE}"
+
+    if [ "${rc_py}" -ne "${BOL_PASS}" ] || [ "${rc_sh}" -ne "${BOL_PASS}" ]; then
+        return "${BOL_FAIL}"
+    fi
     return "${BOL_PASS}"
 }
 
@@ -656,6 +838,127 @@ stage_measure() {
 }
 
 # ---------------------------------------------------------------------------
+# View: the task list
+# ---------------------------------------------------------------------------
+
+# Prints one indented row per stage. The usage text and the view both read it.
+stage_rows() {
+    local row
+    for row in "${BOL_STAGE_DOC[@]}"; do
+        printf '  %-11s %s\n' "${row%%|*}" "${row#*|}"
+    done
+}
+
+# Compares the tasks that the view names with the tasks that mise reports. A task
+# that mise carries and the view omits is a drift, and so is a task that the view
+# names and mise does not carry. The function reports a difference and changes
+# nothing. An absent mise leaves the view unchecked, which the function states,
+# because a check that did not run must not read as a check that found nothing.
+view_cross_check() {
+    if ! command -v mise >/dev/null 2>&1; then
+        say "mise is absent from PATH, so this view stands unchecked against mise.toml."
+        return 0
+    fi
+
+    # The name field of the JSON report is one key per line, which reads without a
+    # JSON parser. A plain mise tasks listing would need its column layout instead.
+    local reported=()
+    mapfile -t reported < <(cd -- "${BOL_ROOT}" \
+        && mise tasks ls --json 2>/dev/null \
+        | sed -n 's/^[[:space:]]*"name": "\(.*\)",$/\1/p')
+
+    if [ "${#reported[@]}" -eq 0 ]; then
+        say "mise reported no task name, so this view stands unchecked against mise.toml."
+        return 0
+    fi
+
+    local named=("${BOL_STAGES[@]}" all "${BOL_VIEW_TASK}")
+    local row
+    for row in "${BOL_CHECKER_DOC[@]}"; do
+        named+=("${row%%|*}")
+    done
+
+    local differences=0 name
+    for name in "${reported[@]}"; do
+        case " ${named[*]} " in
+            *" ${name} "*) ;;
+            *)
+                say "mise carries a task that this view does not name: ${name}"
+                differences=$((differences + 1))
+                ;;
+        esac
+    done
+    for name in "${named[@]}"; do
+        case " ${reported[*]} " in
+            *" ${name} "*) ;;
+            *)
+                say "this view names a task that mise does not carry: ${name}"
+                differences=$((differences + 1))
+                ;;
+        esac
+    done
+
+    if [ "${differences}" -gt 0 ]; then
+        say "${differences} difference(s). Read mise.toml and the tables of ${BOL_SELF}."
+        return 0
+    fi
+
+    say "mise carries ${#reported[@]} task(s), and this view names every one of them."
+    return 0
+}
+
+# Prints every task of the repository, grouped, with the stages in the order that
+# "all" runs them.
+#
+# The view reports no result. It reads no log under prep-out and no run record, so a
+# verdict of an earlier run cannot read as the state of the tree now. Run a stage to
+# learn a result.
+view_list() {
+    printf 'Bolis tasks. mise is the front door, and %s runs the stages.\n' "${BOL_SELF}"
+    printf '\n'
+    printf 'Stages, in the order that "all" runs them:\n'
+
+    local index=0 row
+    for row in "${BOL_STAGE_DOC[@]}"; do
+        index=$((index + 1))
+        printf '  %d  %-11s %s\n' "${index}" "${row%%|*}" "${row#*|}"
+    done
+
+    printf '\n'
+    printf '     mise run all        Run the %d stages above, in that order.\n' "${#BOL_STAGE_DOC[@]}"
+    printf '     mise run <stage>    Run one stage and nothing else.\n'
+    printf '\n'
+    printf '     preflight and lint change no file of the repository. build, test, and\n'
+    printf '     measure write build output. Every stage writes a log under prep-out.\n'
+    printf '\n'
+    printf 'Checker tasks. "all" calls none of them:\n'
+
+    local name effect doc rest
+    for row in "${BOL_CHECKER_DOC[@]}"; do
+        name="${row%%|*}"
+        rest="${row#*|}"
+        effect="${rest%%|*}"
+        doc="${rest#*|}"
+        printf '     %-13s %-13s %s\n' "${name}" "${effect}" "${doc}"
+    done
+
+    printf '\n'
+    printf '     A checker task calls its checker directly. The lint stage runs the same\n'
+    printf '     checks as part of "all", and fix-python stays outside every stage.\n'
+    printf '\n'
+    printf 'Checks that no task of this repository runs:\n'
+    printf '\n'
+    printf '     astyle_py, MISRA C:2012, CERT C, and Doxygen. Those belong to\n'
+    printf '     skills/c-compliance-check for a C change, and to the Checks workflow\n'
+    printf '     for a pull request.\n'
+    printf '\n'
+    printf 'This view against mise.toml:\n'
+    printf '\n'
+    view_cross_check
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -731,14 +1034,16 @@ Usage:
   ${BOL_SELF} all
 
 Stages, in the order that "all" runs them:
-  preflight   Report whether every later stage can run. Change nothing.
-  build       Build the bench example and the reader test app with idf.py.
-  test        Run the C reader cases on the host, then the host package pytest cases.
-  measure     Report the size of each image and the duration of each stage.
+$(stage_rows)
+
+The lint stage runs before the build, because it finishes in seconds and the build
+takes minutes. It changes no file. Run "mise run fix-python" to apply the ruff
+fixes and the ruff layout to the host package.
 
 Options:
   --keep-going   Run every named stage even after one fails.
   --out <dir>    Write the logs to <dir>. The default is prep-out.
+  --list         Print every task of the repository, grouped, and stop.
   -h, --help     Print this text.
 
 Verdicts:
@@ -746,12 +1051,14 @@ Verdicts:
   FAIL   The stage ran and did not meet its condition. The exit code is 1.
   SKIP   The stage could not run. The reason is on the verdict line.
 
-The stages run no layout, MISRA, CERT, or Doxygen check. Use
+The stages run no astyle_py, MISRA, CERT, or Doxygen check. Use
 skills/c-compliance-check for a C change, and read the Checks workflow for the
 checks that every pull request carries.
 
 Examples:
+  ${BOL_SELF} --list             Read what every task does before running one.
   ${BOL_SELF} preflight          Check the machine before anything else.
+  ${BOL_SELF} lint               Check the host package and the scripts.
   ${BOL_SELF} build test         Build, then run the cases.
   ${BOL_SELF} all --keep-going   Run every stage and collect every failure.
 USAGE
@@ -764,6 +1071,10 @@ main() {
         case "$1" in
             -h|--help)
                 usage
+                return 0
+                ;;
+            --list)
+                view_list
                 return 0
                 ;;
             --keep-going)

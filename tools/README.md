@@ -10,16 +10,26 @@ per stage, so mise is the front door:
 
 ```
 mise install               Install every tool that mise.toml pins. Run this once.
-mise tasks                 List the stages.
+mise tasks                 List every task, one line each, in alphabetical order.
+mise run list              Print every task, grouped, with the stages in order.
 mise run preflight         Report whether every later stage can run. Change nothing.
+mise run lint              Check the host package with ruff and mypy, then the scripts.
 mise run build             Build the bench example and the reader test app.
 mise run test              Run the C reader cases on the host, then the host package pytest cases.
 mise run measure           Report the size of each image and the duration of each stage.
-mise run all               Run the four stages in the order above.
-mise run lint-shell        Check every shell script with ShellCheck.
+mise run all               Run the five stages in the order above.
 ```
 
-Each task calls `tools/prep`, which also runs on its own with the same stage names:
+Three tasks call a checker directly and run no stage. `all` calls none of them:
+
+```
+mise run lint-python       Check the host package with ruff and mypy. Change no file.
+mise run lint-shell        Check every shell script with ShellCheck.
+mise run fix-python        Apply the ruff fixes and the ruff layout. Write files.
+```
+
+Each stage task calls `tools/prep`, which also runs on its own with the same stage
+names:
 
 ```
 ./tools/prep preflight
@@ -28,6 +38,27 @@ Each task calls `tools/prep`, which also runs on its own with the same stage nam
 ```
 
 Run `./tools/prep --help` for the options.
+
+### The task list
+
+`mise run list`, which is `./tools/prep --list`, prints every task of the repository
+in three groups: the stages in the order that `all` runs them, the checker tasks that
+`all` never calls, and the checks that no task of this repository runs. It marks the
+one task that writes files.
+
+The view reports no result. It reads no log under `prep-out/` and no run record, so a
+verdict of an earlier run cannot read as the state of the tree now. Run a stage to
+learn a result.
+
+The view ends with a comparison against `mise.toml`. It reads the task names that
+mise reports and names any task that the view omits, and any task that the view names
+and mise does not carry. A new task that no one adds to the tables of `tools/prep`
+therefore appears as a difference instead of staying out of sight. An absent mise
+leaves the view unchecked, and the view states that rather than claiming agreement.
+
+`tools/prep` holds one table of the stages, as `name|description`. The usage text,
+the view, and the stage list of the script all read it, and `mise.toml` carries the
+same sentence as the description of each stage task.
 
 ### What each stage reports
 
@@ -46,7 +77,7 @@ instead.
 
 ### What the stages do not do
 
-The stages run no layout, MISRA, CERT, or Doxygen check. Those checks belong to
+The stages run no `astyle_py`, MISRA, CERT, or Doxygen check. Those checks belong to
 `.github/workflows/checks.yml` for a pull request, and to the local compliance procedure
 for a C change.
 
@@ -71,6 +102,33 @@ scripts. `mise.toml` states why it pins no Python version.
 
 The `preflight` stage reports each requirement, including whether every tool that
 `mise.toml` pins is installed. Run it first. It installs nothing.
+
+### The lint stage
+
+The `lint` stage runs two parts and combines them into one verdict. The host package
+part runs three commands from the `host/` directory, because each one reads its
+configuration from `host/pyproject.toml`:
+
+```
+ruff check .
+ruff format --check .
+.venv/bin/mypy --strict src/bolis
+```
+
+The shell part runs ShellCheck over every script that the stage names.
+
+The stage reports `PASS` or `FAIL` and never `SKIP`. An absent `ruff`, `shellcheck`, or
+`host/.venv/bin/mypy` fails the stage. `mise.toml` pins the first two, and the `dev`
+extra of `host/pyproject.toml` carries mypy, so an absent checker means an unprepared
+machine rather than clean code. A `SKIP` would end the run with exit code 0, which
+reads as a check that found nothing rather than a check that never ran.
+
+The stage runs before `build` in `all`, because it finishes in seconds while the build
+takes minutes, so a lint failure stops the run before the ESP-IDF build starts.
+
+The stage changes no file. The layout command runs with `--check`, which reports a
+difference and writes nothing. Run `mise run fix-python` to apply the ruff fixes and
+the ruff layout, then read the diff.
 
 ### The test stage
 
