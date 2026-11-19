@@ -19,8 +19,8 @@ from bolis import BolisError
 
 # The claim limit of specification section 4. Every report states it.
 CLAIM_LIMIT = (
-    "The report answers one question: how does my configuration behave under "
-    "controlled conditions. It does not claim to explain a failure in the field."
+    "This report shows how the tested configuration performs under the conditions of the test run."
+    " It does not diagnose failures outside the test environment."
 )
 
 # The three limits that every report states (specification section 4).

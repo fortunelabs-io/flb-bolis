@@ -42,7 +42,7 @@ PLACEHOLDER = "<placeholder>"
 
 # The sentence that specification section 6 requires of the page.
 MOCKUP_NOTICE = (
-    "This page is a mockup. No run produced it, and it states no measurement. "
+    "This page is a mockup. "
     "Every value below is a placeholder beside its origin label."
 )
 
