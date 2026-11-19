@@ -42,8 +42,7 @@ PLACEHOLDER = "<placeholder>"
 
 # The sentence that specification section 6 requires of the page.
 MOCKUP_NOTICE = (
-    "This page is a mockup. "
-    "Every value below is a placeholder beside its origin label."
+    "This page is a mockup. Every value below is a placeholder beside its origin label."
 )
 
 # What replaces the mockup, from specification section 6 and decision record
