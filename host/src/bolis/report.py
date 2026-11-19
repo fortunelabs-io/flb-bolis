@@ -45,8 +45,8 @@ VARIABLES = ("channel", "power_set_value", "payload_bytes")
 # The heading of the chart of each variable, with the unit of its axis.
 VARIABLE_TITLES = {
     "channel": "Channel",
-    "power_set_value": "Transmit power, in units of 0.25 dBm",
-    "payload_bytes": "Payload size, in bytes",
+    "power_set_value": "Transmit power (units of 0.25 dBm)",
+    "payload_bytes": "Payload size (bytes)",
 }
 
 # The loss quantity that each pass states (decision
@@ -83,6 +83,10 @@ _CHART_LEFT = 72
 _CHART_RIGHT = 16
 _CHART_TOP = 16
 _CHART_BOTTOM = 44
+
+# A histogram carries the width of a chart, so one font size renders at the
+# same height on both. A viewBox narrower than a chart scales its text up.
+_HISTOGRAM_HEIGHT = 160
 
 
 class BolisReportError(BolisError):
@@ -141,6 +145,20 @@ def _digits(value: float) -> str:
     return f"{value:.4f}"
 
 
+def _sentence_case(text: str) -> str:
+    """Raises the first letter of one phrase and leaves the rest alone.
+
+    A unit such as dBm keeps its case, because only the first letter moves.
+
+    Args:
+        text: The phrase to raise.
+
+    Returns:
+        The phrase with its first letter in upper case.
+    """
+    return f"{text[:1].upper()}{text[1:]}"
+
+
 def labelled(entry: Mapping[str, Any], pointer: str, record_name: str) -> str:
     """Renders one labelled number with its origin label and its record link.
 
@@ -157,6 +175,27 @@ def labelled(entry: Mapping[str, Any], pointer: str, record_name: str) -> str:
     return (
         f'<span class="n">{_text(_digits(_value(entry)))}'
         f'<a class="lbl" href="{href}">[{label}]</a></span>'
+    )
+
+
+def labelled_no_link(value: float, label: str) -> str:
+    """Renders one labelled number that no single key of the record states.
+
+    The report reads several keys to reach this number, so no JSON Pointer
+    names it and the number carries its origin label alone. A number that one
+    key states carries a link as well, through `labelled`.
+
+    Args:
+        value: The number to render.
+        label: The origin label of the number, one of the four of decision
+            2026-10-01-number-origin-labels.md.
+
+    Returns:
+        The number and its label.
+    """
+    return (
+        f'<span class="n">{_text(_digits(value))}'
+        f'<span class="lbl">[{_text(label)}]</span></span>'
     )
 
 
@@ -196,15 +235,43 @@ def _pass_cells(
     ]
 
 
+def baseline_points(
+    cells: Sequence[Mapping[str, Any]],
+    baseline: Mapping[str, Any],
+    pass_name: str,
+) -> list[tuple[int, float]]:
+    """Returns the cell and the loss ratio of each baseline repeat of one pass.
+
+    The ratios come from the loss quantity that the pass states, which the
+    drift band of that pass reads. The cell of each ratio names the key of the
+    record that states it, so a report links the ratio to that key.
+
+    Args:
+        cells: The cells section of the record.
+        baseline: The baseline condition of the run.
+        pass_name: The pass, broadcast or unicast.
+
+    Returns:
+        One pair of cell and ratio per valid baseline cell of that pass that
+        states the quantity.
+    """
+    quantity = PASS_QUANTITY[pass_name]
+    points: list[tuple[int, float]] = []
+    for index, cell in _pass_cells(cells, pass_name):
+        if cell_variable(cell["condition"], baseline) != BASELINE:
+            continue
+        loss = cell.get(quantity)
+        if isinstance(loss, Mapping):
+            points.append((index, _value(loss["ratio"])))
+    return points
+
+
 def baseline_ratios(
     cells: Sequence[Mapping[str, Any]],
     baseline: Mapping[str, Any],
     pass_name: str,
 ) -> list[float]:
     """Returns the loss ratios of the baseline repeats of one pass.
-
-    The ratios come from the loss quantity that the pass states, which the
-    drift band of that pass reads.
 
     Args:
         cells: The cells section of the record.
@@ -215,15 +282,7 @@ def baseline_ratios(
         One ratio per valid baseline cell of that pass that states the
         quantity.
     """
-    quantity = PASS_QUANTITY[pass_name]
-    ratios: list[float] = []
-    for _index, cell in _pass_cells(cells, pass_name):
-        if cell_variable(cell["condition"], baseline) != BASELINE:
-            continue
-        loss = cell.get(quantity)
-        if isinstance(loss, Mapping):
-            ratios.append(_value(loss["ratio"]))
-    return ratios
+    return [ratio for _index, ratio in baseline_points(cells, baseline, pass_name)]
 
 
 def drift_band(
@@ -425,8 +484,8 @@ def _histogram(counts: Sequence[Any], title: str) -> str:
     """Draws one histogram of BOL_HISTOGRAM_BINS bins as inline SVG."""
     values = [float(count) for count in counts]
     top = max(values, default=0.0) or 1.0
-    width = 320
-    height = 110
+    width = _CHART_WIDTH
+    height = _HISTOGRAM_HEIGHT
     bar = width / float(max(len(values), 1))
     parts = [
         f'<svg class="hist" viewBox="0 0 {width} {height}" role="img" '
@@ -456,8 +515,11 @@ h3 { font-size: 1rem; margin-bottom: 0.25rem; }
 table { border-collapse: collapse; width: 100%; }
 th, td { border-bottom: 1px solid #8884; padding: 0.3rem 0.4rem;
          text-align: left; vertical-align: top; }
+td { overflow-wrap: anywhere; }
 .n { white-space: nowrap; }
-.lbl { font-size: 0.75em; margin-left: 0.25rem; text-decoration: none; }
+.lbl { font-size: 0.75em; margin-left: 0.25rem; text-decoration: none;
+       color: inherit; opacity: 0.65; }
+a.lbl:hover, a.lbl:focus { text-decoration: underline; opacity: 1; }
 .chart, .hist { width: 100%; height: auto; }
 .axis { stroke: currentColor; stroke-width: 1; }
 .tick, .axis-title { fill: currentColor; font-size: 11px; }
@@ -492,7 +554,7 @@ def _condition_rows(
             ),
         ),
         (
-            "Packet payload limit, in bytes",
+            "Packet payload limit (bytes)",
             labelled(
                 firmware["payload_limit_bytes"],
                 "/firmware/payload_limit_bytes/value",
@@ -500,7 +562,7 @@ def _condition_rows(
             ),
         ),
         (
-            "PHY rate, in Mbps",
+            "PHY rate (Mbps)",
             labelled(setup["phy_rate_mbps"], "/setup/phy_rate_mbps/value", record_name),
         ),
         ("Country code", _text(setup["country_code"])),
@@ -510,9 +572,11 @@ def _condition_rows(
         ("Baseline source", _text(setup["baseline_source"])),
     ]
     for name in VARIABLES:
+        # Only the first letter falls, so a unit such as dBm keeps its case.
+        title = VARIABLE_TITLES[name]
         rows.append(
             (
-                f"Baseline {VARIABLE_TITLES[name].lower()}",
+                f"Baseline {title[:1].lower()}{title[1:]}",
                 labelled(
                     setup["baseline"][name],
                     f"/setup/baseline/{name}/value",
@@ -549,27 +613,32 @@ def _paragraph(
     band = drift_band(cells, baseline, pass_name)
     moved = moved_loss(cells, baseline, pass_name)
     quantity = QUANTITY_TITLES[PASS_QUANTITY[pass_name]]
-    ratios = baseline_ratios(cells, baseline, pass_name)
+    quantity_key = PASS_QUANTITY[pass_name]
+    points = baseline_points(cells, baseline, pass_name)
 
     lines = [
         f"<h3>The {_text(pass_name)} pass</h3>",
-        f"<p>The drift band of this pass is {_text(_digits(band))} of "
-        f"{_text(quantity)}, from {len(ratios)} baseline cells.</p>",
+        f"<p>The drift band is {labelled_no_link(band, 'derived')} of "
+        f"{_text(quantity)}, from {len(points)} baseline cells.</p>",
     ]
-    if ratios:
-        lines.append(
-            f"<p>The baseline loss of this pass runs from "
-            f"{_text(_digits(min(ratios)))} to {_text(_digits(max(ratios)))}.</p>"
+    if points:
+        low_cell, low_ratio = min(points, key=lambda point: point[1])
+        high_cell, high_ratio = max(points, key=lambda point: point[1])
+        lowest = labelled(
+            {"value": low_ratio, "label": "derived"},
+            f"/cells/{low_cell}/{quantity_key}/ratio/value",
+            record_name,
         )
+        highest = labelled(
+            {"value": high_ratio, "label": "derived"},
+            f"/cells/{high_cell}/{quantity_key}/ratio/value",
+            record_name,
+        )
+        lines.append(f"<p>The baseline loss runs from {lowest} to {highest}.</p>")
     if not moved:
-        lines.append(
-            "<p>No variable moved loss on this pass. Two cells of a variable "
-            "move loss when their Wilson intervals do not overlap and their "
-            "difference exceeds the drift band.</p>"
-        )
+        lines.append("<p>No variable moved loss on this pass.</p>")
         return "".join(lines)
 
-    quantity_key = PASS_QUANTITY[pass_name]
     items = []
     for entry in moved:
         variable = entry["variable"]
@@ -580,13 +649,12 @@ def _paragraph(
             shown = labelled(
                 {"value": point["ratio"], "label": "derived"}, pointer, record_name
             )
-            parts.append(f"the cell at {_text(_digits(point['x']))} states {shown}")
+            parts.append(f"{_text(_digits(point['x']))} states {shown}")
         items.append(
             f"<li>{_text(VARIABLE_TITLES[variable])}: " + " and ".join(parts) + ".</li>"
         )
     lines.append(
-        "<p>These variables moved loss on this pass. The report states no "
-        "cause.</p><ul>" + "".join(items) + "</ul>"
+        "<p>These variables moved loss on this pass.</p><ul>" + "".join(items) + "</ul>"
     )
     return "".join(lines)
 
@@ -630,15 +698,10 @@ def _charts(
                 point for point in message_points if point["x"] > payload_limit_bytes
             ]
             if extra:
-                note = (
-                    "<p>The open squares state message loss, which a payload "
-                    "above the packet payload limit splits across several "
-                    "packets.</p>"
-                )
+                note = "<p>The open squares state message loss.</p>"
         sections.append(
             f"<h3>{_text(VARIABLE_TITLES[variable])}</h3>"
-            f"<p>{_text(pass_name)} pass, {_text(QUANTITY_TITLES[quantity])}. "
-            f"The shaded range is the drift band.</p>"
+            f"<p>{_text(_sentence_case(QUANTITY_TITLES[quantity]))}.</p>"
             + _chart(VARIABLE_TITLES[variable], points, band_low, band_high, extra)
             + note
         )
@@ -647,7 +710,7 @@ def _charts(
             f"<p>This run states no cell of a swept variable on the "
             f"{_text(pass_name)} pass.</p>"
         )
-    return "".join(sections)
+    return "<p>The shaded range is the drift band.</p>" + "".join(sections)
 
 
 def _histograms(cells: Sequence[Mapping[str, Any]], record_name: str) -> str:
@@ -668,16 +731,15 @@ def _histograms(cells: Sequence[Mapping[str, Any]], record_name: str) -> str:
             f"#{_text(f'/cells/{index}/sender/send_to_callback_us_histogram/value')}"
         )
         sections.append(
-            f"<h3>Cell {_text(cell['cell_id'])}</h3>"
+            f"<h3>Cell {_text(cell['cell_id'])}"
+            f'<a class="lbl" href="{href}">[{_text(entry.get("label", ""))}]</a></h3>'
             + _histogram(counts, f"Send-to-callback time of cell {cell['cell_id']}")
-            + f'<p><a class="lbl" href="{href}">[{_text(entry.get("label", ""))}]</a>'
-            "</p>"
         )
     if not sections:
         return ""
     return (
-        "<h2>Send-to-callback time</h2><p>One histogram per unicast pass. Each "
-        "holds 16 bins on a doubling scale.</p>" + "".join(sections)
+        "<h2>Send-to-callback time</h2><p>One histogram per unicast pass. The "
+        "16 bins double in width.</p>" + "".join(sections)
     )
 
 
@@ -709,8 +771,7 @@ def render(document: Mapping[str, Any], record_name: str) -> str:
     if run.get("status") != "complete":
         stopped = (
             f'<p class="note">This run stopped before the end of its plan. '
-            f"The report states the cells that ran. Reason: "
-            f"{_text(run.get('stopped_reason', 'none stated'))}</p>"
+            f"Reason: {_text(run.get('stopped_reason', 'none stated'))}</p>"
         )
 
     body = [
@@ -731,7 +792,7 @@ def render(document: Mapping[str, Any], record_name: str) -> str:
 
     payload_limit_bytes = _value(document["firmware"]["payload_limit_bytes"])
     for pass_name in passes:
-        body.append(f"<h2>Loss by variable, {_text(pass_name)} pass</h2>")
+        body.append(f"<h2>Loss by variable in {_text(pass_name)} pass</h2>")
         body.append(_charts(cells, setup, pass_name, payload_limit_bytes))
 
     body.append("<h2>What moved loss</h2>")
@@ -752,8 +813,7 @@ def render(document: Mapping[str, Any], record_name: str) -> str:
             for name, meaning in LABEL_LEGEND
         )
         + "</dl>"
-        f'<p>Every number above links to the key of <a href="{_text(record_name)}">'
-        f"{_text(record_name)}</a> that states it.</p>"
+        f'<p>Run record: <a href="{_text(record_name)}">{_text(record_name)}</a></p>'
     )
 
     return (
