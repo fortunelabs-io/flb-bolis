@@ -35,6 +35,11 @@ env:
   # the same version. A change here changes that file in the same pull request.
   BOL_CPPCHECK_VERSION: "2.19.1"
 
+  # The ShellCheck version behind the shell job. mise.toml pins the same version for a
+  # local run, so a finding does not depend on where the check runs. A change here
+  # changes that file in the same pull request.
+  BOL_SHELLCHECK_VERSION: "0.11.0"
+
 jobs:
   build:
     name: Build on ESP-IDF ${{ matrix.idf }}
@@ -447,3 +452,56 @@ jobs:
           set -euo pipefail
           cd host
           mypy --strict src/bolis
+
+      - name: Run the host package test cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd host
+          # The dev extra carries pytest, so an absent pytest fails this step. pytest
+          # also exits with a non-zero status when it collects no case, so a job that
+          # ran nothing does not read the same way as a job that found nothing.
+          python -m pytest
+
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install ShellCheck at the version that mise.toml pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          # apt carries a different ShellCheck release on each distribution, and the
+          # runner image already carries a release of its own, so neither source holds
+          # the pinned version. The job installs the release binary that the ShellCheck
+          # project publishes for that version instead.
+          curl -fsSL -o shellcheck.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v${BOL_SHELLCHECK_VERSION}/shellcheck-v${BOL_SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          # The archive holds one top directory, and --strip-components places the
+          # binary at a path that this step names rather than one the archive chose.
+          mkdir -p shellcheck-bin
+          tar -xJf shellcheck.tar.xz -C shellcheck-bin --strip-components=1
+          sudo install -m 0755 shellcheck-bin/shellcheck /usr/local/bin/shellcheck
+
+          # The ShellCheck of the image would otherwise pass as the pinned one, so the
+          # job states which binary answers and compares its version. The version output
+          # opens with a banner and puts the number on a line of its own.
+          printf 'shellcheck resolves to: %s\n' "$(command -v shellcheck)"
+          installed="$(shellcheck --version | sed -n 's/^version: //p')"
+          printf 'shellcheck reports: %s\n' "${installed}"
+          if [ "${installed}" != "${BOL_SHELLCHECK_VERSION}" ]; then
+            printf 'the pin is %s and the binary reports %s.\n' \
+              "${BOL_SHELLCHECK_VERSION}" "${installed}"
+            exit 1
+          fi
+
+      - name: Check every shell script
+        shell: bash
+        run: |
+          set -euo pipefail
+          # tools/prep is the only shell script of the repository. The lint stage of
+          # tools/prep names the same file, and a new script enters both lists.
+          shellcheck tools/prep

@@ -26,3 +26,5 @@ pytest
 ```
 
 `tools/prep test` runs `pytest` from this environment as part of the local test stage. Create the environment before that stage, or it reports `SKIP` with the command above.
+
+`tools/prep lint` runs the first three commands as part of the local lint stage, and `mise run lint-python` runs them on their own. Both read `mypy` from this environment. The lint stage fails when the environment is absent, because a stage that ran no check must not report a pass.

@@ -6,9 +6,9 @@
 # command it runs, writes a log, and ends with one verdict line. The summary at the
 # end names the verdict, the duration, and the log of every stage of the run.
 #
-# The stages cover readiness, the build, the test cases, and the measurements. They
-# run no layout, MISRA, CERT, or Doxygen check. Those checks belong to
-# skills/c-compliance-check and to the Checks workflow.
+# The stages cover readiness, the lint checks, the build, the test cases, and the
+# measurements. They run no astyle_py, MISRA, CERT, or Doxygen check. Those checks
+# belong to skills/c-compliance-check and to the Checks workflow.
 set -euo pipefail
 
 readonly BOL_SELF="${0##*/}"
@@ -52,8 +52,18 @@ readonly BOL_TEST_MODULES=(
 # pytest nor mypy (host/README.md).
 readonly BOL_HOST_DIR="host"
 readonly BOL_HOST_VENV_PY="${BOL_HOST_DIR}/.venv/bin/python3"
+# mise pins no mypy. The dev extra of host/pyproject.toml carries it, so the lint
+# stage reads it from the same environment that supplies pytest.
+readonly BOL_HOST_VENV_MYPY="${BOL_HOST_DIR}/.venv/bin/mypy"
+readonly BOL_HOST_PACKAGE="src/bolis"
 
-readonly BOL_STAGES=(preflight build test measure)
+# Every shell script of the repository. A new script adds one entry here, because a
+# find over the tree would also reach a script of a build directory.
+readonly BOL_SHELL_SRCS=(
+    "tools/prep"
+)
+
+readonly BOL_STAGES=(preflight lint build test measure)
 
 # A stage reports its result through an exit code.
 readonly BOL_PASS=0
@@ -268,6 +278,30 @@ stage_preflight() {
             "${BOL_HOST_VENV_PY} is absent. Run: python3 -m venv ${BOL_HOST_DIR}/.venv && ${BOL_HOST_VENV_PY} -m pip install -e '${BOL_HOST_DIR}[dev]'"
     fi
 
+    # The three checkers of the lint stage. That stage fails rather than skips when a
+    # checker is absent, so each one is a requirement and not a warning here.
+    if command -v ruff >/dev/null 2>&1; then
+        check_ok "ruff" "$(ruff --version 2>/dev/null)"
+    else
+        check_fail "ruff" "absent from PATH. mise.toml pins it. Run: mise install"
+    fi
+
+    # The version output of ShellCheck opens with a banner and puts the number on a
+    # line of its own, so the row reads that line rather than the first one. A comment
+    # that opens with the name of the tool would parse as a ShellCheck directive.
+    if command -v shellcheck >/dev/null 2>&1; then
+        check_ok "shellcheck" "$(shellcheck --version 2>/dev/null | sed -n 's/^version: //p')"
+    else
+        check_fail "shellcheck" "absent from PATH. mise.toml pins it. Run: mise install"
+    fi
+
+    if [ -x "${BOL_ROOT}/${BOL_HOST_VENV_MYPY}" ]; then
+        check_ok "mypy" "${BOL_HOST_VENV_MYPY}"
+    else
+        check_fail "mypy" \
+            "${BOL_HOST_VENV_MYPY} is absent. Run: ${BOL_HOST_VENV_PY} -m pip install -e '${BOL_HOST_DIR}[dev]'"
+    fi
+
     # The tools that mise.toml pins. A stage that needs one of them reports its own
     # absence, and no stage needs every pinned tool, so an absent tool is a warning.
     if [ ! -f "${BOL_ROOT}/mise.toml" ]; then
@@ -320,6 +354,122 @@ stage_preflight() {
     fi
 
     note "${ready} ready, ${warned} warning(s)"
+    return "${BOL_PASS}"
+}
+
+# ---------------------------------------------------------------------------
+# Stage: lint
+# ---------------------------------------------------------------------------
+
+# Checks the host package with ruff and mypy. The part changes no file: the layout
+# command runs with --check, which reports a difference and writes nothing. Run
+# "mise run fix-python" to apply the fixes and the layout.
+#
+# An absent checker fails this part rather than skipping it. mise.toml pins ruff and
+# the dev extra of host/pyproject.toml carries mypy, so an absent checker means an
+# unprepared machine. A skip would end the run with exit code 0, which reads as a
+# check that found nothing rather than a check that never ran.
+#
+# The three commands run from the host directory, because each one reads its
+# configuration from host/pyproject.toml. The part runs all three before it reports,
+# so one finding does not hide another.
+stage_lint_python() {
+    if ! command -v ruff >/dev/null 2>&1; then
+        BOL_LINT_PY_NOTE="ruff is absent from PATH"
+        say "mise.toml pins ruff. Run: mise install"
+        return "${BOL_FAIL}"
+    fi
+
+    local mypy="${BOL_ROOT}/${BOL_HOST_VENV_MYPY}"
+    if [ ! -x "${mypy}" ]; then
+        BOL_LINT_PY_NOTE="${BOL_HOST_VENV_MYPY} is absent"
+        say "The stage reads mypy from host/.venv, and it found no such program."
+        say "Run: ${BOL_HOST_VENV_PY} -m pip install -e '${BOL_HOST_DIR}[dev]'"
+        return "${BOL_FAIL}"
+    fi
+
+    local host_path="${BOL_ROOT}/${BOL_HOST_DIR}"
+    local failed=0
+
+    step "cd ${BOL_HOST_DIR} && ruff check ."
+    if ! (cd -- "${host_path}" && ruff check .); then
+        failed=$((failed + 1))
+    fi
+    printf '\n'
+
+    step "cd ${BOL_HOST_DIR} && ruff format --check ."
+    if ! (cd -- "${host_path}" && ruff format --check .); then
+        failed=$((failed + 1))
+    fi
+    printf '\n'
+
+    # The line names the program by its path inside the host directory, because a
+    # bare mypy is the resolution that this part avoids.
+    step "cd ${BOL_HOST_DIR} && ${BOL_HOST_VENV_MYPY#"${BOL_HOST_DIR}/"} --strict ${BOL_HOST_PACKAGE}"
+    if ! (cd -- "${host_path}" && "${mypy}" --strict "${BOL_HOST_PACKAGE}"); then
+        failed=$((failed + 1))
+    fi
+
+    if [ "${failed}" -gt 0 ]; then
+        BOL_LINT_PY_NOTE="Python: ${failed} of 3 commands reported a finding"
+        return "${BOL_FAIL}"
+    fi
+
+    BOL_LINT_PY_NOTE="Python: ruff and mypy reported no finding"
+    return "${BOL_PASS}"
+}
+
+# Checks every shell script of the repository with ShellCheck. Every script stays free
+# of findings, and the Checks workflow applies that rule with the same version of
+# ShellCheck that mise.toml pins.
+stage_lint_shell() {
+    if ! command -v shellcheck >/dev/null 2>&1; then
+        BOL_LINT_SH_NOTE="shellcheck is absent from PATH"
+        say "mise.toml pins shellcheck. Run: mise install"
+        return "${BOL_FAIL}"
+    fi
+
+    step "shellcheck ${BOL_SHELL_SRCS[*]}"
+    if ! shellcheck "${BOL_SHELL_SRCS[@]}"; then
+        BOL_LINT_SH_NOTE="shell: ShellCheck reported a finding"
+        return "${BOL_FAIL}"
+    fi
+
+    say "${#BOL_SHELL_SRCS[@]} script(s) free of findings"
+    BOL_LINT_SH_NOTE="shell: ${#BOL_SHELL_SRCS[@]} script(s) free of findings"
+    return "${BOL_PASS}"
+}
+
+# Runs the host package checkers, then ShellCheck, and combines the two into one
+# verdict. Either part failing fails the stage. Neither part skips, so the stage
+# reports PASS or FAIL and nothing else.
+stage_lint() {
+    local rc_py rc_sh
+    BOL_LINT_PY_NOTE=""
+    BOL_LINT_SH_NOTE=""
+
+    say "Host package, with ruff and mypy."
+    printf '\n'
+    if stage_lint_python; then
+        rc_py="${BOL_PASS}"
+    else
+        rc_py=$?
+    fi
+
+    printf '\n'
+    say "Shell scripts, with ShellCheck."
+    printf '\n'
+    if stage_lint_shell; then
+        rc_sh="${BOL_PASS}"
+    else
+        rc_sh=$?
+    fi
+
+    note "${BOL_LINT_PY_NOTE}; ${BOL_LINT_SH_NOTE}"
+
+    if [ "${rc_py}" -ne "${BOL_PASS}" ] || [ "${rc_sh}" -ne "${BOL_PASS}" ]; then
+        return "${BOL_FAIL}"
+    fi
     return "${BOL_PASS}"
 }
 
@@ -732,9 +882,14 @@ Usage:
 
 Stages, in the order that "all" runs them:
   preflight   Report whether every later stage can run. Change nothing.
+  lint        Check the host package with ruff and mypy, then the scripts with ShellCheck.
   build       Build the bench example and the reader test app with idf.py.
   test        Run the C reader cases on the host, then the host package pytest cases.
   measure     Report the size of each image and the duration of each stage.
+
+The lint stage runs before the build, because it finishes in seconds and the build
+takes minutes. It changes no file. Run "mise run fix-python" to apply the ruff
+fixes and the ruff layout to the host package.
 
 Options:
   --keep-going   Run every named stage even after one fails.
@@ -746,12 +901,13 @@ Verdicts:
   FAIL   The stage ran and did not meet its condition. The exit code is 1.
   SKIP   The stage could not run. The reason is on the verdict line.
 
-The stages run no layout, MISRA, CERT, or Doxygen check. Use
+The stages run no astyle_py, MISRA, CERT, or Doxygen check. Use
 skills/c-compliance-check for a C change, and read the Checks workflow for the
 checks that every pull request carries.
 
 Examples:
   ${BOL_SELF} preflight          Check the machine before anything else.
+  ${BOL_SELF} lint               Check the host package and the scripts.
   ${BOL_SELF} build test         Build, then run the cases.
   ${BOL_SELF} all --keep-going   Run every stage and collect every failure.
 USAGE

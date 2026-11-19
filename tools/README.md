@@ -12,14 +12,23 @@ per stage, so mise is the front door:
 mise install               Install every tool that mise.toml pins. Run this once.
 mise tasks                 List the stages.
 mise run preflight         Report whether every later stage can run. Change nothing.
+mise run lint              Check the host package with ruff and mypy, then the scripts.
 mise run build             Build the bench example and the reader test app.
 mise run test              Run the C reader cases on the host, then the host package pytest cases.
 mise run measure           Report the size of each image and the duration of each stage.
-mise run all               Run the four stages in the order above.
-mise run lint-shell        Check every shell script with ShellCheck.
+mise run all               Run the five stages in the order above.
 ```
 
-Each task calls `tools/prep`, which also runs on its own with the same stage names:
+Three tasks call a checker directly and run no stage. `all` calls none of them:
+
+```
+mise run lint-python       Check the host package with ruff and mypy. Change no file.
+mise run lint-shell        Check every shell script with ShellCheck.
+mise run fix-python        Apply the ruff fixes and the ruff layout. Write files.
+```
+
+Each stage task calls `tools/prep`, which also runs on its own with the same stage
+names:
 
 ```
 ./tools/prep preflight
@@ -46,7 +55,7 @@ instead.
 
 ### What the stages do not do
 
-The stages run no layout, MISRA, CERT, or Doxygen check. Those checks belong to
+The stages run no `astyle_py`, MISRA, CERT, or Doxygen check. Those checks belong to
 `.github/workflows/checks.yml` for a pull request, and to the local compliance procedure
 for a C change.
 
@@ -71,6 +80,33 @@ scripts. `mise.toml` states why it pins no Python version.
 
 The `preflight` stage reports each requirement, including whether every tool that
 `mise.toml` pins is installed. Run it first. It installs nothing.
+
+### The lint stage
+
+The `lint` stage runs two parts and combines them into one verdict. The host package
+part runs three commands from the `host/` directory, because each one reads its
+configuration from `host/pyproject.toml`:
+
+```
+ruff check .
+ruff format --check .
+.venv/bin/mypy --strict src/bolis
+```
+
+The shell part runs ShellCheck over every script that the stage names.
+
+The stage reports `PASS` or `FAIL` and never `SKIP`. An absent `ruff`, `shellcheck`, or
+`host/.venv/bin/mypy` fails the stage. `mise.toml` pins the first two, and the `dev`
+extra of `host/pyproject.toml` carries mypy, so an absent checker means an unprepared
+machine rather than clean code. A `SKIP` would end the run with exit code 0, which
+reads as a check that found nothing rather than a check that never ran.
+
+The stage runs before `build` in `all`, because it finishes in seconds while the build
+takes minutes, so a lint failure stops the run before the ESP-IDF build starts.
+
+The stage changes no file. The layout command runs with `--check`, which reports a
+difference and writes nothing. Run `mise run fix-python` to apply the ruff fixes and
+the ruff layout, then read the diff.
 
 ### The test stage
 

@@ -4,14 +4,17 @@
 # runs against the same version on every machine. Run "mise install" once, then
 # "mise tasks" to list the stages.
 #
-# The tasks delegate to tools/prep, which prints the command of each stage, writes
-# a log under prep-out, and ends with one verdict. Read tools/README.md for the
-# stages and their verdicts.
+# A stage task delegates to tools/prep, which prints the command of each stage,
+# writes a log under prep-out, and ends with one verdict. Read tools/README.md for
+# the stages and their verdicts. A checker task, such as lint-python, calls its
+# checkers directly and writes no log.
 
 [tools]
 # ShellCheck checks tools/prep. The rule that every script stays free of ShellCheck
 # findings has no pinned version anywhere else in the repository, and apt carries a
-# different release on each distribution, so the version lives here.
+# different release on each distribution, so the version lives here. The Checks
+# workflow installs the same version through BOL_SHELLCHECK_VERSION, so a change
+# here changes .github/workflows/checks.yml in the same pull request.
 shellcheck = "0.11.0"
 
 # Ruff lints and formats the host package. The command table of the repository names
@@ -37,6 +40,10 @@ ruff = "0.17.3"
 description = "Report whether every later stage can run. Change nothing."
 run = "./tools/prep preflight"
 
+[tasks.lint]
+description = "Check the host package with ruff and mypy, then every shell script with ShellCheck."
+run = "./tools/prep lint"
+
 [tasks.build]
 description = "Build the bench example and the reader test app with idf.py."
 run = "./tools/prep build"
@@ -50,14 +57,40 @@ description = "Report the size of each image and the duration of each stage."
 run = "./tools/prep measure"
 
 [tasks.all]
-description = "Run the readiness, build, test, and measure stages in order."
-# The task calls one stage runner rather than four mise tasks, because mise may run
+description = "Run the readiness, lint, build, test, and measure stages in order."
+# The task calls one stage runner rather than five mise tasks, because mise may run
 # the tasks of a depends list at the same time. The stages need their order, and one
 # run prints one summary table.
 run = "./tools/prep all"
 
+[tasks.lint-python]
+description = "Check the host package with ruff and mypy. Change no file."
+# The three commands read their configuration from host/pyproject.toml, so the task
+# runs from the host directory. The lint stage of tools/prep runs the same three
+# commands, and a change here changes that stage in the same pull request.
+#
+# mypy comes from host/.venv. The dev extra of host/pyproject.toml installs it there,
+# and mise pins no mypy. A bare mypy may resolve to the environment of an ESP-IDF
+# checkout, which carries none (host/README.md).
+dir = "host"
+run = [
+    "ruff check .",
+    "ruff format --check .",
+    ".venv/bin/mypy --strict src/bolis",
+]
+
+[tasks.fix-python]
+description = "Apply the ruff fixes and the ruff layout to the host package. Write files."
+# This task writes files, so "all" does not call it. Run it, read the diff, then run
+# lint-python again.
+dir = "host"
+run = [
+    "ruff check --fix .",
+    "ruff format .",
+]
+
 [tasks.lint-shell]
 description = "Check every shell script of the repository with ShellCheck."
-# The stages of tools/prep run no checker. This task sits outside them, and "all"
-# does not call it.
+# The lint stage of tools/prep runs this same check as part of "all". This task
+# remains for a run of ShellCheck on its own.
 run = "shellcheck tools/prep"
