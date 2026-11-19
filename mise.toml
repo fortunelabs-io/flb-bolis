@@ -7,7 +7,12 @@
 # A stage task delegates to tools/prep, which prints the command of each stage,
 # writes a log under prep-out, and ends with one verdict. Read tools/README.md for
 # the stages and their verdicts. A checker task, such as lint-python, calls its
-# checkers directly and writes no log.
+# checkers directly and writes no log. The list task prints what every task of this
+# file does, and it runs no check.
+#
+# Each stage task carries the description that the stage table of tools/prep states,
+# so the two doors describe a stage with one sentence. "mise run list" compares the
+# task names of this file with the tables of tools/prep and reports a difference.
 
 [tools]
 # ShellCheck checks tools/prep. The rule that every script stays free of ShellCheck
@@ -36,12 +41,18 @@ ruff = "0.17.3"
 # PATH. The preflight stage reads the version that a stage actually gets and reports
 # it against the minimum, which holds whatever a config above this file states.
 
+[tasks.list]
+description = "Print every task of the repository, grouped, with the stages in order."
+# The task runs no check and reports no result. It states what each task does, which
+# "mise tasks" cannot: the order of the stages and the task that writes files.
+run = "./tools/prep --list"
+
 [tasks.preflight]
 description = "Report whether every later stage can run. Change nothing."
 run = "./tools/prep preflight"
 
 [tasks.lint]
-description = "Check the host package with ruff and mypy, then every shell script with ShellCheck."
+description = "Check the host package with ruff and mypy, then the scripts."
 run = "./tools/prep lint"
 
 [tasks.build]

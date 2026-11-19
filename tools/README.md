@@ -10,7 +10,8 @@ per stage, so mise is the front door:
 
 ```
 mise install               Install every tool that mise.toml pins. Run this once.
-mise tasks                 List the stages.
+mise tasks                 List every task, one line each, in alphabetical order.
+mise run list              Print every task, grouped, with the stages in order.
 mise run preflight         Report whether every later stage can run. Change nothing.
 mise run lint              Check the host package with ruff and mypy, then the scripts.
 mise run build             Build the bench example and the reader test app.
@@ -37,6 +38,27 @@ names:
 ```
 
 Run `./tools/prep --help` for the options.
+
+### The task list
+
+`mise run list`, which is `./tools/prep --list`, prints every task of the repository
+in three groups: the stages in the order that `all` runs them, the checker tasks that
+`all` never calls, and the checks that no task of this repository runs. It marks the
+one task that writes files.
+
+The view reports no result. It reads no log under `prep-out/` and no run record, so a
+verdict of an earlier run cannot read as the state of the tree now. Run a stage to
+learn a result.
+
+The view ends with a comparison against `mise.toml`. It reads the task names that
+mise reports and names any task that the view omits, and any task that the view names
+and mise does not carry. A new task that no one adds to the tables of `tools/prep`
+therefore appears as a difference instead of staying out of sight. An absent mise
+leaves the view unchecked, and the view states that rather than claiming agreement.
+
+`tools/prep` holds one table of the stages, as `name|description`. The usage text,
+the view, and the stage list of the script all read it, and `mise.toml` carries the
+same sentence as the description of each stage task.
 
 ### What each stage reports
 
