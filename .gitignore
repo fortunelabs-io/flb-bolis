@@ -2,6 +2,9 @@
 .claude/
 CLAUDE.local.md
 
+# mise: a machine-local override of an inherited tool pin stays on this machine
+.mise.local.toml
+
 # Standard documents and MISRA rule texts: never commit them
 *MISRA*.pdf
 *misra*.pdf
