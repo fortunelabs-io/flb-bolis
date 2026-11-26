@@ -1,5 +1,6 @@
 # Claude Code: local instructions stay on this machine
 .claude/
+CLAUDE.md
 CLAUDE.local.md
 
 # mise: a machine-local override of an inherited tool pin stays on this machine
